@@ -3,58 +3,13 @@ MainWindow's history list and StackWindow's collection list so they share
 one visual language instead of each hand-rolling QListWidgetItem text."""
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
-from . import styles
+from . import styles, thumbnails
 
 KIND_LABELS = {"text": "Texto", "url": "Enlace", "image": "Imagen", "file": "Archivo"}
 BADGE_SIZE = 34
-
-# Decoding + scaling + circular-masking a PNG is the expensive part of
-# building an image row (~10-15ms each measured live on Erwin) -- and
-# MainWindow.refresh() rebuilds every visible row from scratch on every
-# single window open. A history page with 60+ image items therefore redid
-# that work 60+ times per Ctrl+Shift+V, which measured as ~800ms of the
-# ~900ms it took the panel to appear. content_hash is stable for a given
-# row's lifetime (dedup-recapture only touches updated_at/source_app, never
-# image_data), so it's a safe cache key; capped so a long-running session
-# with a large image-heavy history doesn't grow this unboundedly.
-_THUMBNAIL_CACHE_MAX = 2000
-_thumbnail_cache: dict[tuple[str, int], QPixmap] = {}
-
-
-def _cached_circular_thumbnail(content_hash: str, image_data: bytes, size: int) -> QPixmap:
-    key = (content_hash, size)
-    cached = _thumbnail_cache.get(key)
-    if cached is not None:
-        return cached
-    if len(_thumbnail_cache) >= _THUMBNAIL_CACHE_MAX:
-        _thumbnail_cache.pop(next(iter(_thumbnail_cache)))
-    pixmap = _circular_thumbnail(image_data, size)
-    _thumbnail_cache[key] = pixmap
-    return pixmap
-
-
-def _circular_thumbnail(image_data: bytes, size: int) -> QPixmap:
-    source = QImage()
-    source.loadFromData(image_data)
-    scaled = QPixmap.fromImage(source).scaled(
-        size, size, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-        Qt.TransformationMode.SmoothTransformation,
-    )
-    result = QPixmap(size, size)
-    result.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(result)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    path = QPainterPath()
-    path.addEllipse(0, 0, size, size)
-    painter.setClipPath(path)
-    x = (scaled.width() - size) // 2
-    y = (scaled.height() - size) // 2
-    painter.drawPixmap(-x, -y, scaled)
-    painter.end()
-    return result
 
 
 class ClipRowWidget(QWidget):
@@ -82,7 +37,7 @@ class ClipRowWidget(QWidget):
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         if item.kind == "image" and item.image_data:
-            icon_label.setPixmap(_cached_circular_thumbnail(item.content_hash, item.image_data, BADGE_SIZE))
+            icon_label.setPixmap(thumbnails.circular_thumbnail(item.content_hash, item.image_data, BADGE_SIZE))
             icon_label.setFixedSize(BADGE_SIZE, BADGE_SIZE)
         else:
             icon_label.setPixmap(styles.kind_icon(item.kind).pixmap(18, 18))

@@ -32,6 +32,7 @@ from .paste_service import PasteService
 from .stack import ClipStack
 from .stack_window import StackWindow
 from .storage import StorageService
+from .timeline_window import TimelineWindow
 
 RETENTION_DAYS = 30
 RESOURCES_DIR = Path(__file__).resolve().parent.parent.parent / "resources"
@@ -118,7 +119,14 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
         on_synthetic_paste=watcher.suppress_for,
         on_paste_failed=notify_paste_failed,
     )
-    window = MainWindow(storage, paste_service)
+    # Phase 2: Ctrl+Shift+V now opens `timeline` -- the fast, keyboard-first,
+    # virtualized card bar (see PASTE_PRODUCT_ANALYSIS.md / DESIGN_SYSTEM.md).
+    # `library_window` (the original vertical MainWindow) keeps the pinboard
+    # CRUD (rename/icon/reorder/delete) that doesn't fit a short horizontal
+    # bar well -- reachable from the tray, not from the hot-path shortcut,
+    # since those are occasional management actions, not the daily-use path.
+    library_window = MainWindow(storage, paste_service)
+    timeline = TimelineWindow(storage, paste_service)
 
     clip_stack = ClipStack(storage=storage, paste_service=paste_service)
     restored_count = clip_stack.load_persisted()
@@ -143,8 +151,10 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
 
     def on_captured(item):
         log.info("Capturado clip #%s tipo=%s", item.id, item.kind)
-        if window.isVisible():
-            window.refresh()
+        if library_window.isVisible():
+            library_window.refresh()
+        if timeline.isVisible():
+            timeline.refresh()
         if stack_window.is_collecting():
             stack_window.add_capture(item)
 
@@ -152,9 +162,11 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
 
     menu = QMenu()
     open_action = menu.addAction("Abrir Nexus")
-    open_action.triggered.connect(window.show_and_focus)
+    open_action.triggered.connect(timeline.show_and_focus)
     stack_action = menu.addAction("Nexus Stack")
     stack_action.triggered.connect(stack_window.show_and_focus)
+    manage_action = menu.addAction("Administrar pinboards y biblioteca…")
+    manage_action.triggered.connect(library_window.show_and_focus)
     menu.addSeparator()
 
     theme_menu = menu.addMenu("Tema")
@@ -166,9 +178,10 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
         app.setStyleSheet(styles.qss())
         for action, action_key in theme_actions.items():
             action.setChecked(action_key == key)
-        window.refresh()
+        library_window.refresh()
         stack_window.refresh()
-        window.refresh_sidebar_icons()
+        library_window.refresh_sidebar_icons()
+        timeline.refresh()
 
     for theme_key, theme_label in styles.theme_choices():
         theme_action = theme_menu.addAction(theme_label)
@@ -182,14 +195,14 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
     quit_action.triggered.connect(app.quit)
     tray.setContextMenu(menu)
     tray.activated.connect(
-        lambda reason: window.show_and_focus()
+        lambda reason: timeline.show_and_focus()
         if reason == QSystemTrayIcon.ActivationReason.Trigger
         else None
     )
     tray.show()
 
     dbus_svc = dbus_service.register(
-        show_main_panel=window.show_and_focus, show_stack=stack_window.show_and_focus, parent=app,
+        show_main_panel=timeline.show_and_focus, show_stack=stack_window.show_and_focus, parent=app,
     )
     if dbus_svc is not None:
         log.info(
@@ -211,10 +224,10 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
                 else:
                     stack_window.show_and_focus()
             elif action_id == "toggle-main-panel":
-                if window.isVisible():
-                    window.fade_hide()
+                if timeline.isVisible():
+                    timeline.fade_hide()
                 else:
-                    window.show_and_focus()
+                    timeline.show_and_focus()
             log.info(
                 "shortcut: %s -> ventana lista en %.1fms",
                 action_id, (time.perf_counter() - t0) * 1000,
