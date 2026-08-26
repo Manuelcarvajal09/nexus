@@ -11,7 +11,9 @@ is asyncio-based. qasync merges that asyncio loop with Qt's own so both run
 on the same thread without blocking each other."""
 
 import asyncio
+import fcntl
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -41,6 +43,36 @@ def _setup_logging() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=[logging.FileHandler(paths.LOG_PATH), logging.StreamHandler(sys.stderr)],
     )
+
+
+def _acquire_single_instance_lock():
+    """Enforces exactly one running Nexus process. Previously nothing did --
+    two copies would run two clipboard monitors, two evdev keyboard watchers,
+    and race to register the same global shortcuts/tray, all silently.
+
+    A held flock() on a well-known file is the standard Linux single-instance
+    pattern: unlike a PID file, the kernel releases it automatically the
+    instant this process's file descriptor closes for any reason,
+    including a crash or `kill -9` -- so there is no stale-lock cleanup to
+    get wrong. The open file object must be kept alive (returned, not
+    dropped) for as long as this instance should hold the lock."""
+    log = logging.getLogger("nexus")
+    paths.ensure_dirs()
+    # "a+", not "w": opening for write alone truncates the file immediately,
+    # even for a losing instance that's about to fail the lock -- which would
+    # wipe the real owner's PID out of a file it doesn't actually hold.
+    lock_file = open(paths.LOCK_PATH, "a+")
+    try:
+        fcntl.lockf(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        log.warning("Ya hay una instancia de Nexus en ejecución; saliendo.")
+        lock_file.close()
+        return None
+    lock_file.seek(0)
+    lock_file.truncate()
+    lock_file.write(str(os.getpid()))
+    lock_file.flush()
+    return lock_file
 
 
 def _install_exception_hook() -> None:
@@ -200,6 +232,10 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
 def main() -> int:
     _setup_logging()
     _install_exception_hook()
+
+    lock_file = _acquire_single_instance_lock()
+    if lock_file is None:
+        return 0
 
     app = QApplication(sys.argv)
     app.setApplicationName("Nexus")

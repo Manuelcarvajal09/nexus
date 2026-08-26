@@ -14,11 +14,13 @@ def _xdg(env_var: str, default: str) -> Path:
 DATA_DIR = _xdg("XDG_DATA_HOME", ".local/share") / "nexus"
 CONFIG_DIR = _xdg("XDG_CONFIG_HOME", ".config") / "nexus"
 CACHE_DIR = _xdg("XDG_CACHE_HOME", ".cache") / "nexus"
+RUNTIME_DIR = _xdg("XDG_RUNTIME_DIR", ".cache") / "nexus"
 
 DB_PATH = DATA_DIR / "nexus.sqlite"
 LOG_PATH = CACHE_DIR / "nexus.log"
+LOCK_PATH = RUNTIME_DIR / "nexus-linux.lock"
 
 
 def ensure_dirs() -> None:
-    for d in (DATA_DIR, CONFIG_DIR, CACHE_DIR):
+    for d in (DATA_DIR, CONFIG_DIR, CACHE_DIR, RUNTIME_DIR):
         d.mkdir(parents=True, exist_ok=True)
