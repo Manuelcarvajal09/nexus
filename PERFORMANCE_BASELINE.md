@@ -54,6 +54,27 @@ De los ~850ms: la consulta SQL era **5-15ms** (SQLite no es el problema). El res
 
 **Por qué no se llegó a <200ms, con precisión:** el remanente (~280-350ms) es el costo inherente de que `QListWidget.setItemWidget()` cree un `QWidget` Qt real y persistente por cada una de las 200 filas visibles+no-visibles en cada apertura — no hay virtualización (solo se pintan/instancian las filas visibles). Cerrar esa brecha requiere reemplazar el modelo de lista actual por `QAbstractListModel` + `QStyledItemDelegate` (solo las ~6-8 filas visibles en pantalla se instancian/pintan). Es un cambio de arquitectura de UI deliberado, documentado como recomendación explícita para Fase 2 (ver `ARCHITECTURE_AUDIT_V2.md` §4) en vez de una reescritura apresurada bajo esta auditoría.
 
+## 2.1 Fase 2 — Timeline virtualizada: cierre del ítem "PARTIAL" de Fase 1
+
+**Actualizado 2026-08-26, tras Nexus Timeline (`timeline_window.py`).** El gate de Fase 1 dejó explícitamente pendiente esto: los ~280-380ms restantes tras el fix de cache de miniaturas eran el costo de construir hasta 200 `QWidget` reales (`QListWidget.setItemWidget`) en cada apertura, sin importar cuántos fueran visibles. La recomendación de esa sección era reemplazar ese modelo por `QAbstractListModel` + `QStyledItemDelegate` — implementado ahora como la experiencia principal de Ctrl+Shift+V.
+
+| Medición | Fase 1 (post-fix) | Fase 2 (Timeline virtualizada) |
+|---|---|---|
+| Ctrl+Shift+V, shortcut → ventana lista | ~280-380ms | **3-4ms** |
+
+Metodología idéntica a la de Fase 1 (mismo log `nexus: shortcut: ... -> ventana lista en %.1fms`, mismo `ydotool` disparando Ctrl+Shift+V real contra el proceso en vivo). Verificado en múltiples aperturas consecutivas: 4.0ms, 3.3ms, 3.0ms.
+
+**Por qué es tan drástico:** con un modelo/delegate, Qt solo invoca `paint()` del delegate para las celdas realmente dentro del viewport (~7-8 cards visibles en una barra de 1920px de ancho) — las otras ~192 filas del historial no cuestan nada hasta que se desplazan a la vista. Esto elimina por completo la dependencia entre "cuántos items tiene el historial" y "cuánto tarda en abrir", no solo la reduce.
+
+**Objetivo del pedido original, resultado final:**
+
+| Objetivo | Resultado |
+|---|---|
+| Feedback perceptible <100ms | **Cumplido con margen amplio** (~3-4ms) |
+| Ventana completamente usable <200ms (ideal) | **Cumplido con margen amplio** (~3-4ms) |
+
+Sin degradar CPU idle, memoria, ni ninguna otra métrica de Fase 1 — el modelo/delegate no introduce ningún timer, hilo, ni efecto gráfico persistente nuevo; ver `DESIGN_SYSTEM.md` §"Surfaces/Elevation" para la regla explícita que evita reintroducir el mismo patrón de costo (`QGraphicsEffect` por card) que causó el problema original.
+
 ## 3. Escalado con historial grande (bases de datos sintéticas, aisladas del dato real del usuario)
 
 | Tamaño de historial | `recent(limit=200)` | búsqueda sin coincidencias (peor caso, full scan) | `purge_older_than(30)` |

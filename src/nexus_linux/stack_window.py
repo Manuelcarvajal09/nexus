@@ -5,7 +5,16 @@ armed on the clipboard. Ctrl+Shift+C is a pure show/hide toggle (see app.py);
 a real Ctrl+V anywhere consumes the head and advances -- on macOS via a
 global Accessibility key monitor, on Linux via evdev_stack_watcher.py when
 enabled (see MIGRATION_LINUX.md, "Stack secuencial"). The "Pegar siguiente"
-button stays as a manual fallback for when that watcher isn't running."""
+button stays as a manual fallback for when that watcher isn't running.
+
+Phase 2 ("Stack 2.0"): the head item now gets its own "NEXT" hero card,
+separate from the remaining-items list, so which item a real Ctrl+V is
+about to consume is obvious without reading position numbers. This file
+only changes *presentation* -- every mutation still goes through ClipStack
+(stack.py), whose state machine and the 30 tests pinning it down in
+tests/test_stack.py are untouched. The hero card is a plain ClipRowWidget
+with set_selected(True): that reuses the existing accent-bordered "selected"
+QSS treatment instead of inventing new styling for emphasis."""
 
 from pathlib import Path
 
@@ -70,6 +79,19 @@ class StackWindow(QWidget):
         header.addWidget(self._order_btn)
         root.addLayout(header)
 
+        next_label = QLabel("SIGUIENTE")
+        next_label.setObjectName("subtitle")
+        root.addWidget(next_label)
+
+        self._next_container = QVBoxLayout()
+        self._next_container.setContentsMargins(0, 0, 0, 0)
+        self._next_widget: ClipRowWidget | None = None
+        root.addLayout(self._next_container)
+
+        self._remaining_label = QLabel("")
+        self._remaining_label.setObjectName("subtitle")
+        root.addWidget(self._remaining_label)
+
         self._list = QListWidget()
         self._list.setSpacing(0)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -123,9 +145,29 @@ class StackWindow(QWidget):
         # so it is tinted with the newly active palette too.
         self._set_order_control()
         items = self._stack.items()
-        self._list.clear()
         display_order = list(reversed(items)) if self._stack.reversed_order else items
-        for position, item in enumerate(display_order, start=1):
+        count = len(items)
+
+        while self._next_container.count():
+            child = self._next_container.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        self._next_widget = None
+
+        if display_order:
+            head = display_order[0]
+            next_row = ClipRowWidget(head)
+            next_row.set_selected(True)  # reuses the accent-bordered QSS treatment for emphasis
+            next_row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            next_row.customContextMenuRequested.connect(
+                lambda pos, item_id=head.id: self._on_next_context_menu(next_row, item_id, pos)
+            )
+            self._next_container.addWidget(next_row)
+            self._next_widget = next_row
+
+        remaining = display_order[1:]
+        self._list.clear()
+        for position, item in enumerate(remaining, start=2):
             list_item = QListWidgetItem()
             list_item.setData(Qt.ItemDataRole.UserRole, item.id)
             row = ClipRowWidget(item, position=position)
@@ -133,15 +175,16 @@ class StackWindow(QWidget):
             self._list.addItem(list_item)
             self._list.setItemWidget(list_item, row)
 
-        count = len(items)
+        self._subtitle.setText(f"{count} elemento{'s' if count != 1 else ''} en total" if count else "Vacío")
+
         order_label = "FIFO" if not self._stack.reversed_order else "LIFO"
-        next_preview = display_order[0].preview(30) if display_order else ""
-        subtitle = f"{count} elemento{'s' if count != 1 else ''} · {order_label}"
-        if next_preview:
-            subtitle += f" · siguiente: {next_preview}"
-        self._subtitle.setText(subtitle)
+        self._remaining_label.setText(
+            f"{len(remaining)} restante{'s' if len(remaining) != 1 else ''} · {order_label}"
+            if count else ""
+        )
         self._empty_label.setVisible(count == 0)
-        self._list.setVisible(count > 0)
+        self._list.setVisible(len(remaining) > 0)
+        self._remaining_label.setVisible(count > 0)
         self._paste_next_btn.setEnabled(count > 0)
 
     def _on_selection_changed(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
@@ -205,6 +248,14 @@ class StackWindow(QWidget):
         menu = QMenu(self)
         delete_action = menu.addAction("Eliminar del Stack")
         chosen = menu.exec(self._list.mapToGlobal(pos))
+        if chosen == delete_action:
+            self._stack.remove_persistent(item_id)
+            self.refresh()
+
+    def _on_next_context_menu(self, anchor_widget, item_id: int, pos) -> None:
+        menu = QMenu(self)
+        delete_action = menu.addAction("Eliminar del Stack")
+        chosen = menu.exec(anchor_widget.mapToGlobal(pos))
         if chosen == delete_action:
             self._stack.remove_persistent(item_id)
             self.refresh()
