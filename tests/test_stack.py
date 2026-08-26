@@ -1,0 +1,269 @@
+"""Regression suite for Nexus Stack. The scenario in test_ten_items_* is the
+historical P0 bug: items could be pasted but never left the Stack, so the
+next item never advanced automatically and the only way forward was the
+manual "Pegar siguiente" button. Root cause was in the UI wiring
+(StackWindow wasn't told to refresh after EvdevStackWatcher's real-paste
+signal), not in ClipStack itself -- but ClipStack's consume/advance
+semantics are the part that must never regress, so that's what's pinned
+down here."""
+
+import logging
+
+from nexus_linux.stack import ClipStack
+
+
+def _text(storage, content: str, source_app: str | None = None):
+    return storage.capture(kind="text", text_content=content, source_app=source_app)
+
+
+def _url(storage, url: str):
+    return storage.capture(kind="url", text_content=url)
+
+
+class TestBasicSequencing:
+    def test_single_item_add_and_consume_empties_stack(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        a = _text(storage, "hello")
+        stack.add(a)
+
+        assert [i.id for i in stack.items()] == [a.id]
+        consumed = stack.consume_after_real_paste()
+        assert consumed.id == a.id
+        assert stack.items() == []
+
+    def test_two_items_fifo_consumes_in_copy_order(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        a, b = _text(storage, "A"), _text(storage, "B")
+        stack.add(a)
+        stack.add(b)
+
+        assert [i.id for i in stack.items()] == [a.id, b.id]
+        assert stack.consume_after_real_paste().id == a.id
+        assert [i.id for i in stack.items()] == [b.id]
+        assert stack.consume_after_real_paste().id == b.id
+        assert stack.items() == []
+
+    def test_ten_items_sequential_real_paste_fully_drains_in_order(self, storage, paste_service):
+        """The exact shape of the historical bug report: A, B, C, ... pasted
+        one real Ctrl+V at a time must each disappear and the stack must
+        reach empty on its own -- no leftover head, no manual nudge needed."""
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        items = [_text(storage, f"item-{i}") for i in range(10)]
+        for item in items:
+            stack.add(item)
+
+        assert len(stack.items()) == 10
+
+        consumed_order = []
+        for _ in range(10):
+            before = len(stack.items())
+            consumed = stack.consume_after_real_paste()
+            after = len(stack.items())
+            assert after == before - 1, "each real paste must remove exactly one item"
+            consumed_order.append(consumed.id)
+
+        assert consumed_order == [i.id for i in items]
+        assert stack.items() == []
+        # An 11th consume on an empty stack must be a safe no-op, not a crash
+        # or a re-delivery of the last item.
+        assert stack.consume_after_real_paste() is None
+
+    def test_consume_after_real_paste_on_empty_stack_is_safe_noop(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        assert stack.consume_after_real_paste() is None
+        assert stack.items() == []
+
+
+class TestManualAdvanceButton:
+    def test_paste_next_and_advance_synthesizes_and_consumes(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        a, b = _text(storage, "A"), _text(storage, "B")
+        stack.add(a)
+        stack.add(b)
+
+        returned = stack.paste_next_and_advance()
+        assert returned.id == a.id
+        assert paste_service.paste_count == 1
+        assert [i.id for i in stack.items()] == [b.id]
+        # arm_next() is called for both the initial add() and each advance,
+        # so B (the new head) must be the most recent thing written.
+        assert paste_service.written[-1].id == b.id
+
+    def test_paste_next_and_advance_on_empty_stack_does_not_synthesize_paste(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        assert stack.paste_next_and_advance() is None
+        assert paste_service.paste_count == 0
+
+
+class TestDeduplicationWithinSession:
+    def test_recopying_identical_content_in_same_session_is_a_noop(self, storage, paste_service):
+        """Mirrors PasteStack.swift's collectLatestCopy: intentional, not an
+        arbitrary dedup rule -- recopying the same thing while the Stack is
+        open must not duplicate the row."""
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        a1 = _text(storage, "same content")
+        a2 = storage.capture(kind="text", text_content="same content")  # storage-level dedup: same row
+        assert a1.id == a2.id  # confirms storage already collapsed these to one row
+
+        assert stack.add(a1) is True
+        assert stack.add(a2) is False  # same-session duplicate: rejected
+        assert len(stack.items()) == 1
+
+    def test_distinct_content_never_collapses(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        a, b = _text(storage, "A"), _text(storage, "B")
+        assert stack.add(a) is True
+        assert stack.add(b) is True
+        assert len(stack.items()) == 2
+
+
+class TestContentVariety:
+    def test_multiline_text(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        item = _text(storage, "line one\nline two\nline three")
+        stack.add(item)
+        assert stack.consume_after_real_paste().text_content == "line one\nline two\nline three"
+
+    def test_emoji_and_unicode_content(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        payload = "café ☕️ 日本語 🚀 naïve résumé"
+        item = _text(storage, payload)
+        stack.add(item)
+        assert stack.consume_after_real_paste().text_content == payload
+
+    def test_url_kind(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        item = _url(storage, "https://example.com/path?q=1")
+        stack.add(item)
+        consumed = stack.consume_after_real_paste()
+        assert consumed.kind == "url"
+        assert consumed.text_content == "https://example.com/path?q=1"
+
+    def test_large_text_blob(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        big = "x" * 500_000
+        item = _text(storage, big)
+        stack.add(item)
+        assert len(stack.consume_after_real_paste().text_content) == 500_000
+
+
+class TestRemovalAndClear:
+    def test_remove_intermediate_item_preserves_order_of_remainder(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        a, b, c = _text(storage, "A"), _text(storage, "B"), _text(storage, "C")
+        for item in (a, b, c):
+            stack.add(item)
+
+        stack.remove_persistent(b.id)
+        assert [i.id for i in stack.items()] == [a.id, c.id]
+        # remove_persistent also deletes the underlying history row.
+        assert storage.get(b.id) is None
+
+    def test_removing_unknown_id_is_a_safe_noop(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        a = _text(storage, "A")
+        stack.add(a)
+        stack.remove_persistent(999_999)
+        assert [i.id for i in stack.items()] == [a.id]
+
+    def test_clear_empties_stack_without_touching_history(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        a, b = _text(storage, "A"), _text(storage, "B")
+        stack.add(a)
+        stack.add(b)
+        stack.clear()
+        assert stack.items() == []
+        # clear() is Stack-session-only; the underlying history rows survive.
+        assert storage.get(a.id) is not None
+        assert storage.get(b.id) is not None
+
+
+class TestOrderToggle:
+    def test_reversed_order_consumes_lifo(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        a, b, c = _text(storage, "A"), _text(storage, "B"), _text(storage, "C")
+        for item in (a, b, c):
+            stack.add(item)
+
+        stack.reversed_order = True
+        stack.arm_next()  # StackWindow._toggle_order() re-arms after flipping order
+
+        assert stack.consume_after_real_paste().id == c.id
+        assert stack.consume_after_real_paste().id == b.id
+        assert stack.consume_after_real_paste().id == a.id
+        assert stack.items() == []
+
+
+class TestClipboardWriteFailureResilience:
+    """Mirrors 'pérdida temporal de clipboard ownership' from the test plan:
+    wl-copy can transiently fail (compositor hiccup, race with another
+    writer). The Stack's in-memory item list must never be corrupted or
+    silently drop an item just because one write attempt failed."""
+
+    def test_failed_arm_write_does_not_lose_the_item(self, storage):
+        from tests.conftest import FakePasteService
+
+        flaky = FakePasteService(fail_write=True)
+        stack = ClipStack(storage=storage, paste_service=flaky)
+        a = _text(storage, "A")
+
+        assert stack.add(a) is True
+        assert [i.id for i in stack.items()] == [a.id]  # still logically present
+        assert flaky.written == []  # write genuinely failed, nothing recorded
+
+    def test_failed_arm_write_is_logged_not_silent(self, storage, caplog):
+        from tests.conftest import FakePasteService
+
+        flaky = FakePasteService(fail_write=True)
+        stack = ClipStack(storage=storage, paste_service=flaky)
+        a = _text(storage, "A")
+        with caplog.at_level(logging.WARNING, logger="nexus.stack"):
+            stack.add(a)
+        assert any("no se pudo escribir" in r.message.lower() for r in caplog.records)
+
+    def test_failed_synthetic_paste_does_not_prevent_manual_advance(self, storage):
+        from tests.conftest import FakePasteService
+
+        flaky = FakePasteService(fail_paste=True)
+        stack = ClipStack(storage=storage, paste_service=flaky)
+        a, b = _text(storage, "A"), _text(storage, "B")
+        stack.add(a)
+        stack.add(b)
+
+        # Even though ydotool "failed" (e.g. ydotoold not running), the item
+        # was still copied to the clipboard -- the user can paste it by hand,
+        # so the Stack must still advance rather than getting stuck on A.
+        returned = stack.paste_next_and_advance()
+        assert returned.id == a.id
+        assert [i.id for i in stack.items()] == [b.id]
+
+
+class TestStressSequential:
+    def test_hundred_sequential_add_then_consume_cycles(self, storage, paste_service):
+        """100 copy/paste cycles: order preserved, no duplicates leak
+        through, stack always ends empty, no exceptions."""
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        produced_ids = []
+
+        for i in range(100):
+            item = _text(storage, f"stress-{i}", source_app=f"app-{i % 5}")
+            stack.add(item)
+            produced_ids.append(item.id)
+            consumed = stack.consume_after_real_paste()
+            assert consumed.id == item.id
+            assert stack.items() == []
+
+        assert len(set(produced_ids)) == 100  # all distinct rows, no id collisions
+
+    def test_hundred_items_added_then_drained_preserves_fifo_order(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        items = [_text(storage, f"batch-{i}") for i in range(100)]
+        for item in items:
+            stack.add(item)
+        assert len(stack.items()) == 100
+
+        drained = []
+        while stack.items():
+            drained.append(stack.consume_after_real_paste().id)
+
+        assert drained == [i.id for i in items]

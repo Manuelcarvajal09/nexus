@@ -3,11 +3,14 @@ the clip_items table itself -- the "stack" is just an ordered list of ids)
 that arms the next clip on the pasteboard and consumes FIFO by default or
 LIFO when reversed. Resets when closed, same as the Swift version."""
 
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
 from .paste_service import PasteService
 from .storage import ClipItem, StorageService
+
+log = logging.getLogger("nexus.stack")
 
 
 @dataclass
@@ -51,7 +54,14 @@ class ClipStack:
         if idx is None:
             return None
         item = self._items[idx]
-        self.paste_service.write_to_clipboard(item)
+        if not self.paste_service.write_to_clipboard(item):
+            # Item stays the logical head either way (the caller's next real
+            # Ctrl+V still targets it) -- but a failed write means the system
+            # clipboard doesn't actually hold what the Stack thinks it does
+            # (temporary clipboard ownership loss, wl-copy briefly
+            # unavailable, etc). Previously silent; a polished app leaves a
+            # trace instead of pretending the arm succeeded.
+            log.warning("No se pudo escribir el item #%s al portapapeles al armarlo.", item.id)
         return item
 
     def consume_next(self) -> Optional[ClipItem]:
