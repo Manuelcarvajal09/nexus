@@ -117,6 +117,12 @@ class StorageService:
         paths.ensure_dirs()
         self._conn = sqlite3.connect(str(db_path))
         self._conn.execute("PRAGMA foreign_keys = ON")
+        # WAL lets a future reader (backup, diagnostics) run concurrently with
+        # this connection's writes instead of blocking; busy_timeout replaces
+        # an instant "database is locked" error with a bounded wait, since the
+        # default (0) turns any brief contention into a visible failure.
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.execute("PRAGMA busy_timeout = 5000")
         self._conn.executescript(SCHEMA)
         self._conn.commit()
         self._migrate_search_text()
