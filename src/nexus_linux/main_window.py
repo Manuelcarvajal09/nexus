@@ -5,6 +5,8 @@ doesn't support the non-activating floating panel trick AppKit used, so we
 keep it simple and stable per the migration priority order (stability over
 visual parity)."""
 
+import logging
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QSize, QTimer, Qt
@@ -29,6 +31,7 @@ from .row_widget import ClipRowWidget
 from .storage import ClipItem, StorageService
 
 RESOURCES_DIR = Path(__file__).resolve().parent.parent.parent / "resources"
+log = logging.getLogger("nexus.window")
 
 
 class MainWindow(QWidget):
@@ -170,8 +173,10 @@ class MainWindow(QWidget):
         self._sidebar.refresh()
 
     def refresh(self) -> None:
+        t_query_start = time.perf_counter()
         query = self._search.text().strip()
         items = self._storage.recent(limit=200, query=query, pinboard_id=self._current_pinboard_id)
+        t_build_start = time.perf_counter()
         self._list.clear()
         for item in items:
             list_item = QListWidgetItem()
@@ -184,6 +189,12 @@ class MainWindow(QWidget):
             self._list.addItem(list_item)
             self._list.setItemWidget(list_item, row)
 
+        t_done = time.perf_counter()
+        log.debug(
+            "refresh(): query=%.1fms build=%.1fms total=%.1fms items=%d",
+            (t_build_start - t_query_start) * 1000, (t_done - t_build_start) * 1000,
+            (t_done - t_query_start) * 1000, len(items),
+        )
         self._count_badge.setText(str(len(items)))
         empty = len(items) == 0
         if empty and query:

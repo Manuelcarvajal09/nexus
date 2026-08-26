@@ -15,6 +15,7 @@ import fcntl
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 import qasync
@@ -199,6 +200,7 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
         ok_stack = await shortcuts.register("toggle-stack", "Abrir Nexus Stack", "Ctrl+Shift+C")
         ok_panel = await shortcuts.register("toggle-main-panel", "Abrir historial de Nexus", "Ctrl+Shift+V")
         def on_shortcut(action_id: str) -> None:
+            t0 = time.perf_counter()
             log.info("Atajo global disparado: %s", action_id)
             if action_id == "toggle-stack":
                 if stack_window.isVisible():
@@ -210,6 +212,10 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
                     window.fade_hide()
                 else:
                     window.show_and_focus()
+            log.info(
+                "shortcut: %s -> ventana lista en %.1fms",
+                action_id, (time.perf_counter() - t0) * 1000,
+            )
 
         shortcuts.triggered.connect(on_shortcut)
         log.info(
