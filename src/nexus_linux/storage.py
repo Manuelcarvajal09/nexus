@@ -57,6 +57,22 @@ CREATE TABLE IF NOT EXISTS pinboard_items (
     item_id INTEGER NOT NULL REFERENCES clip_items(id) ON DELETE CASCADE,
     PRIMARY KEY (pinboard_id, item_id)
 );
+
+-- Nexus Stack's collection session is otherwise purely in-memory (ClipStack
+-- in stack.py): if Nexus is killed or crashes while items are still
+-- pending, they were previously just gone on next launch with no trace --
+-- "arbitrary loss" the audit explicitly called out as unacceptable. This
+-- mirrors just enough state (the ordered id list + FIFO/LIFO flag) to
+-- restore it; ClipStack overwrites this table on every mutation so it never
+-- drifts out of sync with the in-memory list it describes.
+CREATE TABLE IF NOT EXISTS stack_state (
+    position INTEGER PRIMARY KEY,
+    item_id INTEGER NOT NULL REFERENCES clip_items(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS stack_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 # Same palette/suggestions as Pinboard.swift, so a board created here looks
@@ -239,6 +255,35 @@ class StorageService:
         )
         self._conn.commit()
         return cur.rowcount
+
+    # -- Nexus Stack session recovery --------------------------------------
+
+    def save_stack_state(self, item_ids: list[int], reversed_order: bool) -> None:
+        """Overwrites the persisted Stack session wholesale -- called after
+        every ClipStack mutation (add/consume/remove/clear/reorder), so a
+        crash between two mutations can only lose the DB write for the
+        mutation in progress, never leave stale/half-updated ids behind."""
+        self._conn.execute("DELETE FROM stack_state")
+        self._conn.executemany(
+            "INSERT INTO stack_state (position, item_id) VALUES (?, ?)",
+            list(enumerate(item_ids)),
+        )
+        self._conn.execute(
+            "INSERT INTO stack_meta (key, value) VALUES ('reversed_order', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            ("1" if reversed_order else "0",),
+        )
+        self._conn.commit()
+
+    def load_stack_state(self) -> tuple[list[int], bool]:
+        rows = self._conn.execute(
+            "SELECT item_id FROM stack_state ORDER BY position"
+        ).fetchall()
+        row = self._conn.execute(
+            "SELECT value FROM stack_meta WHERE key = 'reversed_order'"
+        ).fetchone()
+        reversed_order = row is not None and row[0] == "1"
+        return [r[0] for r in rows], reversed_order
 
     # -- Pinboards --------------------------------------------------------
 

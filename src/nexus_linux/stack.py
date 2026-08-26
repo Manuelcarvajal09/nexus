@@ -1,7 +1,11 @@
-"""Mirrors Nexus Stack: a temporary collection session (not persisted beyond
-the clip_items table itself -- the "stack" is just an ordered list of ids)
-that arms the next clip on the pasteboard and consumes FIFO by default or
-LIFO when reversed. Resets when closed, same as the Swift version."""
+"""Mirrors Nexus Stack: a collection session that arms the next clip on the
+pasteboard and consumes FIFO by default or LIFO when reversed.
+
+Unlike the Swift original (an in-memory-only session that resets when
+closed), the ordered id list + FIFO/LIFO flag are persisted to
+storage.stack_state on every mutation and restored on the next launch (see
+load_persisted()) -- a crash or `kill` mid-session must not silently lose
+whatever the user had collected but not yet pasted."""
 
 import logging
 from dataclasses import dataclass, field
@@ -29,11 +33,13 @@ class ClipStack:
         if any(existing.content_hash == item.content_hash for existing in self._items):
             return False
         self._items.append(item)
+        self._persist()
         self.arm_next()
         return True
 
     def remove_persistent(self, item_id: int) -> None:
         self._items = [i for i in self._items if i.id != item_id]
+        self._persist()
         self.storage.delete(item_id)
 
     def items(self) -> list[ClipItem]:
@@ -41,6 +47,45 @@ class ClipStack:
 
     def clear(self) -> None:
         self._items.clear()
+        self._persist()
+
+    def toggle_order(self) -> None:
+        """Flips FIFO/LIFO and re-arms so the new head is what's actually on
+        the clipboard. Goes through ClipStack (not a bare attribute set on
+        reversed_order) so the flip is persisted like every other mutation."""
+        self.reversed_order = not self.reversed_order
+        self._persist()
+        self.arm_next()
+
+    def _persist(self) -> None:
+        self.storage.save_stack_state([i.id for i in self._items], self.reversed_order)
+
+    def load_persisted(self) -> int:
+        """Called once at startup, after construction: restores whatever
+        session was still pending when Nexus last stopped. Skips (and drops)
+        ids whose underlying clip_items row is gone -- deleted from history
+        while it sat in the Stack, e.g. via the 30-day retention purge or a
+        manual delete elsewhere in the app. Returns how many items were
+        actually restored, so the caller can log it."""
+        item_ids, reversed_order = self.storage.load_stack_state()
+        if not item_ids:
+            return 0
+        restored = []
+        missing = 0
+        for item_id in item_ids:
+            item = self.storage.get(item_id)
+            if item is None:
+                missing += 1
+                continue
+            restored.append(item)
+        self._items = restored
+        self.reversed_order = reversed_order
+        if missing:
+            log.warning("%d item(s) del Stack persistido ya no existen en el historial; se omiten.", missing)
+        self._persist()  # drop the missing ids from stack_state now, not on the next mutation
+        if self._items:
+            self.arm_next()
+        return len(self._items)
 
     def _next_index(self) -> Optional[int]:
         if not self._items:
@@ -68,7 +113,9 @@ class ClipStack:
         idx = self._next_index()
         if idx is None:
             return None
-        return self._items.pop(idx)
+        item = self._items.pop(idx)
+        self._persist()
+        return item
 
     def consume_after_real_paste(self) -> Optional[ClipItem]:
         """Called when EvdevStackWatcher detects a genuine external Ctrl+V:

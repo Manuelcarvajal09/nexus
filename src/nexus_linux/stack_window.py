@@ -155,12 +155,11 @@ class StackWindow(QWidget):
                 row.set_selected(True)
 
     def _toggle_order(self) -> None:
-        self._stack.reversed_order = not self._stack.reversed_order
+        self._stack.toggle_order()
         self._set_order_control()
         self._order_btn.setObjectName("toggleActive" if self._stack.reversed_order else "")
         self._order_btn.style().unpolish(self._order_btn)
         self._order_btn.style().polish(self._order_btn)
-        self._stack.arm_next()  # flipping order changes which item is "next"
         self.refresh()
 
     def _set_order_control(self) -> None:

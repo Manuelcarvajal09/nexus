@@ -121,6 +121,9 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
     window = MainWindow(storage, paste_service)
 
     clip_stack = ClipStack(storage=storage, paste_service=paste_service)
+    restored_count = clip_stack.load_persisted()
+    if restored_count:
+        log.info("Stack restaurado tras el último cierre: %d item(s) pendientes.", restored_count)
     stack_window = StackWindow(clip_stack)
 
     def on_real_paste_detected():

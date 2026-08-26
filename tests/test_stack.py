@@ -238,6 +238,98 @@ class TestClipboardWriteFailureResilience:
         assert [i.id for i in stack.items()] == [b.id]
 
 
+class TestCrashRecovery:
+    """Simulates a Nexus restart: a fresh ClipStack instance backed by the
+    SAME storage (a real restart keeps the same SQLite file) must recover
+    the exact session a crashed/killed process had in progress -- this is
+    the 'no pérdida arbitraria' requirement from the audit, previously
+    unmet since ClipStack kept no state outside memory at all."""
+
+    def test_pending_items_survive_a_simulated_restart(self, storage, paste_service):
+        first_run = ClipStack(storage=storage, paste_service=paste_service)
+        a, b, c = _text(storage, "A"), _text(storage, "B"), _text(storage, "C")
+        for item in (a, b, c):
+            first_run.add(item)
+        first_run.consume_after_real_paste()  # A pasted for real, B is now head
+
+        # "Restart": brand new ClipStack, same underlying storage.
+        second_run = ClipStack(storage=storage, paste_service=paste_service)
+        assert second_run.items() == []  # nothing until explicitly restored
+        restored_count = second_run.load_persisted()
+
+        assert restored_count == 2
+        assert [i.id for i in second_run.items()] == [b.id, c.id]
+        # The restored head must be re-armed on the clipboard immediately.
+        assert paste_service.written[-1].id == b.id
+
+    def test_empty_stack_restarts_empty(self, storage, paste_service):
+        ClipStack(storage=storage, paste_service=paste_service)  # nothing added
+        second_run = ClipStack(storage=storage, paste_service=paste_service)
+        assert second_run.load_persisted() == 0
+        assert second_run.items() == []
+
+    def test_reversed_order_flag_survives_restart(self, storage, paste_service):
+        first_run = ClipStack(storage=storage, paste_service=paste_service)
+        a, b = _text(storage, "A"), _text(storage, "B")
+        first_run.add(a)
+        first_run.add(b)
+        first_run.toggle_order()  # LIFO
+
+        second_run = ClipStack(storage=storage, paste_service=paste_service)
+        second_run.load_persisted()
+        assert second_run.reversed_order is True
+        assert second_run.consume_after_real_paste().id == b.id  # LIFO: last in, first out
+
+    def test_item_deleted_from_history_while_pending_is_dropped_on_restore(self, storage, paste_service):
+        """Edge case explicitly called out in the audit: the item a Stack
+        session still points to can vanish from history (retention purge,
+        manual delete) between sessions. Restoring must skip it, not crash
+        or resurrect a ghost entry. In practice the stack_state FK's ON
+        DELETE CASCADE already prunes it at delete-time -- this confirms
+        that end-to-end rather than just the Python-level fallback below."""
+        first_run = ClipStack(storage=storage, paste_service=paste_service)
+        a, b = _text(storage, "A"), _text(storage, "B")
+        first_run.add(a)
+        first_run.add(b)
+        storage.delete(a.id)  # simulates retention purge / manual delete elsewhere
+
+        second_run = ClipStack(storage=storage, paste_service=paste_service)
+        restored_count = second_run.load_persisted()
+
+        assert restored_count == 1
+        assert [i.id for i in second_run.items()] == [b.id]
+
+    def test_orphaned_stack_state_row_is_skipped_defensively(self, storage, paste_service, caplog):
+        """Covers load_persisted()'s own missing-item handling directly, for
+        a case the FK cascade wouldn't catch -- e.g. a stack_state row left
+        over from a connection that had foreign_keys off. foreign_keys is
+        toggled off only for this one raw insert, bypassing the cascade on
+        purpose to exercise the defensive path in isolation; save_stack_state
+        itself can't produce this state while the constraint is enforced."""
+        a = _text(storage, "A")
+        storage._conn.execute("PRAGMA foreign_keys = OFF")
+        storage._conn.execute("INSERT INTO stack_state (position, item_id) VALUES (0, ?), (1, ?)", (a.id, 999_999))
+        storage._conn.commit()
+        storage._conn.execute("PRAGMA foreign_keys = ON")
+
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        with caplog.at_level(logging.WARNING, logger="nexus.stack"):
+            restored_count = stack.load_persisted()
+
+        assert restored_count == 1
+        assert [i.id for i in stack.items()] == [a.id]
+        assert any("ya no existen" in r.message for r in caplog.records)
+
+    def test_clear_persists_as_empty_so_restart_does_not_resurrect_it(self, storage, paste_service):
+        first_run = ClipStack(storage=storage, paste_service=paste_service)
+        a = _text(storage, "A")
+        first_run.add(a)
+        first_run.clear()
+
+        second_run = ClipStack(storage=storage, paste_service=paste_service)
+        assert second_run.load_persisted() == 0
+
+
 class TestStressSequential:
     def test_hundred_sequential_add_then_consume_cycles(self, storage, paste_service):
         """100 copy/paste cycles: order preserved, no duplicates leak
