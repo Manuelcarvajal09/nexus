@@ -200,10 +200,8 @@ class TestClipboardWriteFailureResilience:
     writer). The Stack's in-memory item list must never be corrupted or
     silently drop an item just because one write attempt failed."""
 
-    def test_failed_arm_write_does_not_lose_the_item(self, storage):
-        from tests.conftest import FakePasteService
-
-        flaky = FakePasteService(fail_write=True)
+    def test_failed_arm_write_does_not_lose_the_item(self, storage, make_paste_service):
+        flaky = make_paste_service(fail_write=True)
         stack = ClipStack(storage=storage, paste_service=flaky)
         a = _text(storage, "A")
 
@@ -211,20 +209,16 @@ class TestClipboardWriteFailureResilience:
         assert [i.id for i in stack.items()] == [a.id]  # still logically present
         assert flaky.written == []  # write genuinely failed, nothing recorded
 
-    def test_failed_arm_write_is_logged_not_silent(self, storage, caplog):
-        from tests.conftest import FakePasteService
-
-        flaky = FakePasteService(fail_write=True)
+    def test_failed_arm_write_is_logged_not_silent(self, storage, caplog, make_paste_service):
+        flaky = make_paste_service(fail_write=True)
         stack = ClipStack(storage=storage, paste_service=flaky)
         a = _text(storage, "A")
         with caplog.at_level(logging.WARNING, logger="nexus.stack"):
             stack.add(a)
         assert any("no se pudo escribir" in r.message.lower() for r in caplog.records)
 
-    def test_failed_synthetic_paste_does_not_prevent_manual_advance(self, storage):
-        from tests.conftest import FakePasteService
-
-        flaky = FakePasteService(fail_paste=True)
+    def test_failed_synthetic_paste_does_not_prevent_manual_advance(self, storage, make_paste_service):
+        flaky = make_paste_service(fail_paste=True)
         stack = ClipStack(storage=storage, paste_service=flaky)
         a, b = _text(storage, "A"), _text(storage, "B")
         stack.add(a)

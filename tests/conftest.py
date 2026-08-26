@@ -47,3 +47,14 @@ def storage():
 @pytest.fixture
 def paste_service():
     return FakePasteService()
+
+
+@pytest.fixture
+def make_paste_service():
+    """Factory for tests that need a FakePasteService configured to fail
+    (fail_write/fail_paste), rather than the default-happy one above.
+    Exposed as a fixture instead of `from tests.conftest import
+    FakePasteService` inside test files: that import's resolution depends on
+    how pytest was invoked (rootdir, import-mode, cwd) and is not reliable
+    across environments -- a fixture always works."""
+    return FakePasteService

@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: nexus-linux
+Version: 0.1.0
+Summary: Nexus clipboard manager, ported to Linux/KDE Plasma from the macOS Swift original
+Requires-Python: >=3.11
+Requires-Dist: PySide6>=6.7
+Requires-Dist: dbus-next>=0.2
+Requires-Dist: qasync>=0.27
+Requires-Dist: evdev>=1.6
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
