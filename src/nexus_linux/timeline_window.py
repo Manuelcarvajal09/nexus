@@ -114,6 +114,14 @@ class TimelineWindow(QWidget):
 
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        # Without this, #panelRoot's QSS border-radius only clips the
+        # PAINTED fill -- the actual window surface stays a plain opaque
+        # rectangle, so the four corners outside the rounded fill show up
+        # as small square patches of the platform's default window
+        # background instead of real desktop showing through. Confirmed via
+        # PySide6 docs/behavior for frameless top-level widgets, not just
+        # theory: this is the standard attribute for a custom-shaped window.
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setObjectName("panelRoot")
         self._expanded = False
 
