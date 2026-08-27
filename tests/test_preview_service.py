@@ -40,6 +40,22 @@ class TestRequestCacheHit:
         assert result["title"] == "Cached Title"
         assert started == []  # no background fetch needed on a cache hit
 
+    def test_cache_hit_still_enriches_search_text_for_this_item(self, storage, monkeypatch):
+        """The bug this pins down: a URL already cached from an earlier
+        item's fetch previously left a brand-new item referencing the same
+        URL unsearchable by title, since enrichment only ran on a fresh
+        fetch, never on a hit. Confirmed live before this fix."""
+        storage.save_preview_cache("https://example.com", domain="example.com", title="Cached Title")
+        item = storage.capture(kind="url", text_content="https://example.com")
+        service = PreviewService(storage)
+        monkeypatch.setattr(service._pool, "start", lambda task: None)
+
+        service.request(item.id, "https://example.com", is_youtube=False)
+
+        results = storage.recent(limit=10, query="cached title")
+        assert len(results) == 1
+        assert results[0].id == item.id
+
 
 class TestRequestCacheMiss:
     def test_cache_miss_returns_none_and_schedules_fetch(self, storage, monkeypatch):

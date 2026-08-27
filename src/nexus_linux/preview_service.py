@@ -57,6 +57,13 @@ class _FetchTask(QRunnable):
                 og_image=preview.og_image, is_youtube=preview.youtube,
                 channel=preview.channel, status="ok" if has_content else "failed",
             )
+            # The fetched title becomes searchable even though it wasn't
+            # known at capture time -- otherwise "rick astley" could never
+            # find a clip whose actual clipboard content was just a bare
+            # youtube.com URL. Cheap: enrich_search_text() is a no-op past
+            # the first call for the same title.
+            if preview.title:
+                thread_storage.enrich_search_text(self.item_id, preview.title)
             cached = thread_storage.get_preview_cache(self.url)
         except Exception:
             # A network/parsing bug must never crash the worker thread or
@@ -85,6 +92,15 @@ class PreviewService(QObject):
         (render the domain-only fallback now; preview_ready fires later)."""
         cached = self._storage.get_preview_cache(url)
         if cached is not None:
+            # Found and fixed before shipping: a cache HIT (this URL was
+            # already fetched for some earlier item) previously skipped
+            # enrichment entirely, since that only ran inside _FetchTask for
+            # a fresh fetch -- confirmed live, recopying an already-cached
+            # YouTube URL produced a new clip item whose search_text never
+            # got the video title. Every render path that has a title
+            # available enriches, not just the one that just fetched it.
+            if cached.get("title"):
+                self._storage.enrich_search_text(item_id, cached["title"])
             return cached
         if url in self._inflight:
             return None  # already being fetched for another card with the same URL

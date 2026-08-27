@@ -254,6 +254,26 @@ class StorageService:
         row = self._conn.execute("SELECT * FROM clip_items WHERE id = ?", (item_id,)).fetchone()
         return self._row_to_item(row)
 
+    def enrich_search_text(self, item_id: int, extra_text: str) -> None:
+        """Appends normalized text (a fetched page/video title, arriving
+        asynchronously well after capture -- see preview_service.py) to an
+        item's existing search_text, so 'Rick Astley' can find a YouTube
+        link whose clipboard content was only ever the bare URL. A no-op if
+        the item is gone (deleted between capture and the preview finishing)
+        or the addition is already present (safe to call more than once for
+        the same title without growing search_text unboundedly)."""
+        row = self._conn.execute("SELECT search_text FROM clip_items WHERE id = ?", (item_id,)).fetchone()
+        if row is None:
+            return
+        current = row[0] or ""
+        addition = normalize_for_search(extra_text)
+        if addition and addition not in current:
+            self._conn.execute(
+                "UPDATE clip_items SET search_text = ? WHERE id = ?",
+                (f"{current} {addition}".strip(), item_id),
+            )
+            self._conn.commit()
+
     def recent(self, limit: int = 200, query: str = "", pinboard_id: Optional[int] = None) -> list[ClipItem]:
         where = []
         params: list = []

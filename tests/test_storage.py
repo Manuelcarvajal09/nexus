@@ -214,3 +214,37 @@ class TestPreviewCache:
         # The most recently saved entries survive eviction, not the oldest.
         assert storage.get_preview_cache("https://site4.com") is not None
         assert storage.get_preview_cache("https://site0.com") is None
+
+
+class TestEnrichSearchText:
+    def test_fetched_title_becomes_searchable(self, storage):
+        item = storage.capture(kind="url", text_content="https://youtu.be/dQw4w9WgXcQ")
+        assert storage.recent(limit=10, query="rick astley") == []
+
+        storage.enrich_search_text(item.id, "Rick Astley - Never Gonna Give You Up")
+
+        results = storage.recent(limit=10, query="rick astley")
+        assert len(results) == 1
+        assert results[0].id == item.id
+
+    def test_original_content_still_searchable_after_enrichment(self, storage):
+        item = storage.capture(kind="url", text_content="https://youtu.be/dQw4w9WgXcQ")
+        storage.enrich_search_text(item.id, "Rick Astley")
+        assert len(storage.recent(limit=10, query="youtu.be")) == 1
+
+    def test_enriching_nonexistent_item_does_not_raise(self, storage):
+        storage.enrich_search_text(999_999, "some title")  # must not raise
+
+    def test_calling_twice_with_same_title_does_not_duplicate(self, storage):
+        item = storage.capture(kind="url", text_content="https://example.com")
+        storage.enrich_search_text(item.id, "Example Title")
+        storage.enrich_search_text(item.id, "Example Title")
+        row = storage._conn.execute("SELECT search_text FROM clip_items WHERE id = ?", (item.id,)).fetchone()
+        assert row[0].count("example title") == 1
+
+    def test_accented_title_matches_unaccented_query(self, storage):
+        item = storage.capture(kind="url", text_content="https://example.com/reunion")
+        storage.enrich_search_text(item.id, "Página de la Reunión")
+        results = storage.recent(limit=10, query="reunion")
+        assert len(results) == 1
+        assert results[0].id == item.id
