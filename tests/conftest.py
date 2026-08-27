@@ -9,10 +9,18 @@ wl-copy/ydotool, which would mutate the actual system clipboard and require
 a live Wayland session + ydotoold -- wrong for a unit test. It just records
 what was asked of it."""
 
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+# Must be set before any QApplication/QWidget is constructed anywhere in the
+# test session (a handful of tests instantiate real QWidget subclasses, e.g.
+# test_focus_restoration.py, to pin down call ORDER -- not visuals). Offscreen
+# needs no real display/compositor, so this is safe in CI and on a headless
+# runner alike.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
@@ -61,6 +69,18 @@ def file_storage(tmp_path):
 @pytest.fixture
 def paste_service():
     return FakePasteService()
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """Session-scoped QApplication (offscreen, see QT_QPA_PLATFORM above)
+    for the small number of tests that need a real QWidget to pin down
+    call order (e.g. write-before-hide-before-synthesize). Session-scoped
+    because QApplication is a process-wide singleton -- Qt does not support
+    tearing one down and rebuilding another within the same process."""
+    from PySide6.QtWidgets import QApplication
+
+    yield QApplication.instance() or QApplication([])
 
 
 @pytest.fixture

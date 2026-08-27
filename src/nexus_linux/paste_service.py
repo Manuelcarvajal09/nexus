@@ -17,7 +17,27 @@ documented in MIGRATION_LINUX.md:
 2. Pasting: apps cannot synthesize input into other windows directly on
    Wayland (a deliberate compositor security boundary) -- the sanctioned way
    is a uinput-backed daemon. We use ydotool, talking to /dev/uinput via the
-   ydotoold user service (already enabled, no sudo required)."""
+   ydotoold user service (already enabled, no sudo required).
+
+3. Ordering (Phase 2.6, 2026-08-26): every caller that selects an item from
+   a Nexus panel and synthesizes a paste MUST write to the clipboard, THEN
+   hide the panel, THEN synthesize -- never synthesize while the panel is
+   still the active window, or the Ctrl+V lands back inside Nexus itself
+   (its own search field, typically) instead of the app the user actually
+   meant to paste into. This was a real, live bug: the original call sites
+   did write+synthesize+hide, in that order.
+
+   POST_HIDE_PASTE_DELAY_MS is not a guess: measured live on Erwin by
+   instrumenting TimelineWindow.fade_hide() with QTimer.singleShot probes
+   at 0/5/10/20/30/50/80/120ms after hide() and logging
+   self.isActiveWindow() at each -- the window's own deactivation
+   completed between 1ms and 6.6ms after hide() was called (isVisible()
+   flips synchronously, but isActiveWindow() lags behind it since the
+   compositor round-trip is async). 40ms gives roughly 6x margin over that
+   measurement while still being well under the ~100ms "feels instant"
+   threshold -- not an arbitrary large sleep, and not blocking anything
+   (delivered via QTimer.singleShot from the caller, never a thread sleep
+   here or in this module)."""
 
 import shutil
 import subprocess
@@ -28,6 +48,8 @@ from .storage import ClipItem
 
 YDOTOOL_BIN = shutil.which("ydotool")
 WL_COPY_BIN = shutil.which("wl-copy")
+
+POST_HIDE_PASTE_DELAY_MS = 40
 WL_PASTE_BIN = shutil.which("wl-paste")
 
 

@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .paste_service import PasteService
+from .paste_service import POST_HIDE_PASTE_DELAY_MS, PasteService
 from .pinboard_sidebar import PinboardSidebar
 from .row_widget import ClipRowWidget
 from .storage import ClipItem, StorageService
@@ -238,8 +238,13 @@ class MainWindow(QWidget):
         item = self._storage.get(item_id)
         if item is None:
             return
-        self._paste.paste(item, synthesize=True)
+        # Write -> hide -> deferred synthesize, never the reverse -- see
+        # paste_service.POST_HIDE_PASTE_DELAY_MS docstring. Synthesizing
+        # while this window is still active sends the Ctrl+V back into
+        # Nexus itself instead of the app the user meant to paste into.
+        self._paste.write_to_clipboard(item)
         self.fade_hide()
+        QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, self._paste.synthetic_paste)
 
     def _on_list_selection_changed(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
         if previous is not None:

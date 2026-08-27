@@ -18,7 +18,7 @@ QSS treatment instead of inventing new styling for emphasis."""
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QEvent, QSize, QTimer, Qt
 from PySide6.QtGui import QCursor, QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -31,17 +31,27 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .paste_service import POST_HIDE_PASTE_DELAY_MS
 from .row_widget import ClipRowWidget
 from .stack import ClipStack
 from . import styles
 
 RESOURCES_DIR = Path(__file__).resolve().parent.parent.parent / "resources"
+# Kept in sync with timeline_window.DISMISS_DEBOUNCE_MS by convention, not
+# import, to avoid a window-module-to-window-module dependency for one
+# constant -- see that module's comment for the live-observed reasoning.
+DISMISS_DEBOUNCE_MS = 150
 
 
 class StackWindow(QWidget):
     def __init__(self, clip_stack: ClipStack, parent=None):
         super().__init__(parent)
         self._stack = clip_stack
+        self._pending_activation = False
+        self._dismiss_timer = QTimer(self)
+        self._dismiss_timer.setSingleShot(True)
+        self._dismiss_timer.setInterval(DISMISS_DEBOUNCE_MS)
+        self._dismiss_timer.timeout.connect(self._dismiss_if_still_inactive)
 
         self.setWindowTitle("Nexus Stack")
         self.resize(320, 500)
@@ -228,12 +238,24 @@ class StackWindow(QWidget):
 
     def advance(self) -> None:
         """Paste the current head into whichever window has focus (not
-        necessarily this one) and move to the next item. Mirrors what a real
-        Ctrl+V did in the original once accessibility detected it."""
+        necessarily this one) and move to the next item.
+
+        Hides FIRST, defers the actual arm/synthesize/consume/re-arm
+        (ClipStack.paste_next_and_advance(), left completely untouched --
+        see stack.py) until after that hide has had time to take effect.
+        Synthesizing the Ctrl+V while this window is still active would
+        send it back into Nexus itself instead of the app the user meant to
+        paste into -- see paste_service.POST_HIDE_PASTE_DELAY_MS's
+        docstring for the live-measured delay this relies on. Also matches
+        the 'smart dismiss' philosophy: once the user has confirmed they're
+        pasting from the Stack, it should get out of the way immediately,
+        not just once it empties -- it reopens on the next Ctrl+Shift+C."""
+        self.fade_hide()
+        QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, self._do_advance)
+
+    def _do_advance(self) -> None:
         self._stack.paste_next_and_advance()
         self.refresh()
-        if not self.has_pending_items():
-            self.fade_hide()  # matches PasteStackView.consumeAfterPaste(): closes once empty
 
     def _selected_item_id(self):
         current = self._list.currentItem()
@@ -311,9 +333,34 @@ class StackWindow(QWidget):
     def show_and_focus(self) -> None:
         self.refresh()
         self._reposition_to_active_screen()
+        self._pending_activation = True
         self.show()
         self.raise_()
         self.activateWindow()
+        if self.isActiveWindow():
+            # Some launches never fire another ActivationChange since the
+            # state doesn't change (already active from a prior toggle) --
+            # same fallback as TimelineWindow's _pending_focus_claim.
+            self._pending_activation = False
+
+    def changeEvent(self, event) -> None:
+        if event.type() == QEvent.Type.ActivationChange:
+            if self.isActiveWindow():
+                self._pending_activation = False
+                self._dismiss_timer.stop()
+            elif not self._pending_activation and self.isVisible():
+                # Click-outside-to-dismiss, debounced -- same philosophy and
+                # same reasoning as TimelineWindow.changeEvent()/
+                # DISMISS_DEBOUNCE_MS (confirmed live: an undebounced version
+                # could self-hide on a single transient focus blip from
+                # unrelated background activity before the user's own next
+                # keypress arrived).
+                self._dismiss_timer.start()
+        super().changeEvent(event)
+
+    def _dismiss_if_still_inactive(self) -> None:
+        if not self.isActiveWindow() and self.isVisible():
+            self.fade_hide()
 
     def fade_hide(self) -> None:
         # Not animated -- see MainWindow.fade_hide()'s comment and

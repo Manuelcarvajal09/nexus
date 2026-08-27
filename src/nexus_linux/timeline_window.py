@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import panel_geometry, styles, type_detection
-from .paste_service import PasteService
+from .paste_service import POST_HIDE_PASTE_DELAY_MS, PasteService
 from .preview_service import PreviewService
 from .storage import StorageService
 from .timeline_delegate import CARD_HEIGHT, ClipCardDelegate
@@ -51,6 +51,16 @@ from .timeline_model import TimelineModel
 log = logging.getLogger("nexus.timeline")
 
 MAX_ITEMS = 200
+# Click-outside-to-dismiss is debounced by this much before it actually
+# hides the panel: confirmed live on a busy desktop (another process
+# actively grabbing focus in the background) that a single transient
+# deactivation blip can fire and immediately re-lose activation within the
+# same event-loop tick, closing Nexus before the user's own keypress (e.g.
+# Return) ever reached it. Debouncing means a GENUINE click-away (which
+# stays deactivated) still dismisses promptly, while a one-frame blip that
+# reactivates within the window gets cancelled by
+# _dismiss_if_still_inactive's own isActiveWindow() check.
+DISMISS_DEBOUNCE_MS = 150
 ALL_PINBOARDS_ID = None  # sentinel: no pinboard filter, i.e. full history
 
 
@@ -94,6 +104,10 @@ class TimelineWindow(QWidget):
         self._current_pinboard_id: int | None = ALL_PINBOARDS_ID
         self._pinboard_buttons: dict = {}
         self._pending_focus_claim = False
+        self._dismiss_timer = QTimer(self)
+        self._dismiss_timer.setSingleShot(True)
+        self._dismiss_timer.setInterval(DISMISS_DEBOUNCE_MS)
+        self._dismiss_timer.timeout.connect(self._dismiss_if_still_inactive)
 
         if preview_service is not None:
             preview_service.preview_ready.connect(self._on_preview_ready)
@@ -186,20 +200,32 @@ class TimelineWindow(QWidget):
         if not self._list.currentIndex().isValid():
             self._list.setCurrentIndex(self._model.index(0, 0))
 
+    def _select_and_paste(self, item) -> None:
+        """Write -> hide -> (deferred) synthesize, never the reverse.
+        Synthesizing while Nexus is still the active window sends the
+        Ctrl+V into Nexus itself (its own search field, typically) instead
+        of the app the user meant to paste into -- confirmed as a real bug
+        before this fix, not a hypothetical. See paste_service.py's
+        POST_HIDE_PASTE_DELAY_MS docstring for the live measurement behind
+        the delay. write_to_clipboard() itself needs no delay -- it doesn't
+        touch window focus at all."""
+        log.info("select_and_paste: item #%s", item.id)
+        self._paste.write_to_clipboard(item)
+        self.fade_hide()
+        QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, self._paste.synthetic_paste)
+
     def _on_activated(self, index) -> None:
         item = self._model.item_at(index.row())
         if item is None:
             return
-        self._paste.paste(item, synthesize=True)
-        self.fade_hide()
+        self._select_and_paste(item)
 
     def _quick_paste(self, n: int) -> None:
         item = self._model.item_at(n - 1)
         if item is None:
             return
         log.info("Quick Paste #%d -> item #%s", n, item.id)
-        self._paste.paste(item, synthesize=True)
-        self.fade_hide()
+        self._select_and_paste(item)
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:
@@ -216,11 +242,34 @@ class TimelineWindow(QWidget):
         # and once real activation landed afterward Qt fell back to some
         # other widget instead. Tying the claim to this actual activation
         # event is what's reliable.
-        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow() and self._pending_focus_claim:
-            self._pending_focus_claim = False
-            self._search.setFocus()
-            self._search.selectAll()
+        if event.type() == QEvent.Type.ActivationChange:
+            log.debug("ActivationChange: isActiveWindow=%s pending_claim=%s", self.isActiveWindow(), self._pending_focus_claim)
+            if self.isActiveWindow():
+                self._dismiss_timer.stop()  # reactivated within the debounce window -- cancel any pending dismiss
+                if self._pending_focus_claim:
+                    self._pending_focus_claim = False
+                    self._search.setFocus()
+                    self._search.selectAll()
+            elif not self._pending_focus_claim and self.isVisible():
+                # Click-outside-to-dismiss / alt-tab-away-to-dismiss: once
+                # Nexus has genuinely become active this session (not
+                # _pending_focus_claim), losing activation means the user
+                # switched to something else -- treat it like Escape.
+                # Debounced (DISMISS_DEBOUNCE_MS): confirmed live on a busy
+                # desktop that a single-frame deactivation blip (some other
+                # process briefly grabbing focus) can fire and be reversed
+                # within the same tick -- hiding immediately closed Nexus
+                # before the user's own next keypress ever reached it.
+                # _dismiss_if_still_inactive re-checks isActiveWindow() when
+                # the timer fires, so a blip that already reactivated by
+                # then is a no-op.
+                self._dismiss_timer.start()
         super().changeEvent(event)
+
+    def _dismiss_if_still_inactive(self) -> None:
+        if not self.isActiveWindow() and self.isVisible():
+            log.info("click-outside-dismiss: perdí activación, ocultando")
+            self.fade_hide()
 
     # -- pinboard filter chips ----------------------------------------------
 

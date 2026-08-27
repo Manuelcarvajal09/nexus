@@ -137,12 +137,25 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
     stack_window = StackWindow(clip_stack)
 
     def on_real_paste_detected():
-        if stack_window.is_collecting() and stack_window.has_pending_items():
+        # Deliberately NOT gated on stack_window.is_collecting() (window
+        # visibility) -- consuming a real Ctrl+V must keep working even
+        # after the Stack window has auto-hidden itself (see
+        # StackWindow.advance() and below). Otherwise sequential pasting
+        # (A, B, C into some other app) would silently stop working after
+        # the first item, since the window that opened the session is no
+        # longer the thing tracking whether more items are pending -- the
+        # Stack's own contents are. Adding NEW captures to the Stack still
+        # requires the window to be visible (unchanged, see on_captured):
+        # only *consuming* is decoupled from visibility.
+        if stack_window.has_pending_items():
             item = clip_stack.consume_after_real_paste()
             log.info("Ctrl+V real detectado -> consumido del Stack: #%s", item.id if item else None)
             stack_window.refresh()
-            if not stack_window.has_pending_items():
-                stack_window.fade_hide()
+            # Smart dismiss: once the user is actively pasting a sequence,
+            # Nexus Stack should get out of the way immediately rather than
+            # sit on top through every subsequent paste -- it reopens on
+            # the next Ctrl+Shift+C. Not conditional on emptying anymore.
+            stack_window.fade_hide()
 
     watcher.paste_detected.connect(on_real_paste_detected)
     if watcher.start():
