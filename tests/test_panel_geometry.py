@@ -131,6 +131,61 @@ class TestModeSpecificBehavior:
         assert ultrawide_margin > standard_margin
 
 
+class TestChromeHeightParameter:
+    """chrome_height is meant to be the caller's actually-measured header+
+    search height (see TimelineWindow._apply_geometry) -- these pin down
+    that the formula genuinely uses it rather than silently falling back to
+    the guessed default, which is the exact class of bug that let the Quick
+    Shelf balloon past its target in the first place."""
+
+    def test_larger_measured_chrome_grows_the_panel(self):
+        small_chrome = calculate_panel_geometry(0, 0, 1920, 1080, chrome_height=60)
+        large_chrome = calculate_panel_geometry(0, 0, 1920, 1080, chrome_height=160)
+        assert large_chrome.height > small_chrome.height
+
+    def test_default_chrome_height_keeps_quick_shelf_in_target_band(self):
+        """The whole point of the Quick Shelf redesign: ~190-240px on a
+        typical 1080p desktop, not the ~300px/28%-of-screen it used to
+        render at with the old chrome-height estimate."""
+        geo = calculate_panel_geometry(0, 0, 1920, 1080)
+        assert 150 <= geo.height <= 260
+
+
+class TestExpandedView:
+    """Opt-in (Tab / toggle button), never the default on open -- grows
+    toward ~40% of the screen and reports more than one row of cards."""
+
+    def test_expanded_is_taller_than_quick_shelf(self):
+        quick = calculate_panel_geometry(0, 0, 1920, 1080, chrome_height=90, expanded=False)
+        expanded = calculate_panel_geometry(0, 0, 1920, 1080, chrome_height=90, expanded=True)
+        assert expanded.height > quick.height
+
+    def test_expanded_never_exceeds_its_ceiling(self):
+        geo = calculate_panel_geometry(0, 0, 1920, 1080, chrome_height=90, expanded=True)
+        assert geo.height <= round(1080 * 0.45)
+
+    def test_expanded_shows_more_than_one_row(self):
+        geo = calculate_panel_geometry(0, 0, 1920, 1080, chrome_height=90, expanded=True)
+        assert geo.rows_hint > 1
+
+    def test_expanded_shows_more_cards_than_quick_shelf(self):
+        quick = calculate_panel_geometry(0, 0, 1920, 1080, chrome_height=90, expanded=False)
+        expanded = calculate_panel_geometry(0, 0, 1920, 1080, chrome_height=90, expanded=True)
+        assert expanded.visible_cards_hint > quick.visible_cards_hint
+
+    def test_quick_shelf_never_reports_more_than_one_row(self):
+        geo = calculate_panel_geometry(0, 0, 1920, 1080, chrome_height=90, expanded=False)
+        assert geo.rows_hint == 1
+
+    def test_expanded_still_anchored_to_bottom_edge(self):
+        geo = calculate_panel_geometry(0, 0, 1920, 1080, chrome_height=90, expanded=True)
+        assert geo.y + geo.height == 1080
+
+    def test_expanded_never_taller_than_available_height_on_a_short_screen(self):
+        geo = calculate_panel_geometry(0, 0, 1366, 768, chrome_height=90, expanded=True)
+        assert geo.height <= 768
+
+
 class TestDeterminism:
     def test_same_input_always_produces_same_output(self):
         """No hidden state, no randomness, no reliance on 'last known

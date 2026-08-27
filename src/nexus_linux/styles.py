@@ -427,6 +427,63 @@ QLabel#badge {{
     font-weight: 600;
 }}
 
+QLabel#titleCompact {{
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.1px;
+    color: {t.text_primary};
+}}
+
+QLabel#badgeCompact {{
+    background-color: {t.accent_dim};
+    color: {t.accent};
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-size: 9.5px;
+    font-weight: 600;
+}}
+
+QLineEdit#quickSearch {{
+    padding: 5px 10px;
+    font-size: 12.5px;
+}}
+
+QPushButton#pinboardChipCompact {{
+    background-color: transparent;
+    border: none;
+    color: {t.text_secondary};
+    font-weight: 500;
+    font-size: 11px;
+    padding: 3px 9px;
+}}
+
+QPushButton#pinboardChipCompact:hover {{
+    color: {t.text_primary};
+    background-color: {t.card_bg_hover};
+}}
+
+QPushButton#pinboardChipCompact:checked {{
+    background-color: {t.accent_dim};
+    color: {t.accent};
+    font-weight: 600;
+}}
+
+QPushButton#expandToggle {{
+    background-color: transparent;
+    border: 1px solid {t.card_border};
+    border-radius: {t.radius_chip}px;
+    color: {t.text_secondary};
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 3px 8px;
+}}
+
+QPushButton#expandToggle:hover {{
+    color: {t.text_primary};
+    border-color: {t.card_border_hover};
+    background-color: {t.card_bg_hover};
+}}
+
 QLabel#emptyState {{
     color: {t.text_secondary};
     font-size: 13px;

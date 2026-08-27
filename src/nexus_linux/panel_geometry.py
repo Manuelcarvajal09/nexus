@@ -45,8 +45,26 @@ _ULTRAWIDE_MIN_WIDTH = 3200  # covers 3440x1440, 3840x1600
 BASE_CARD_HEIGHT = 148   # must match timeline_delegate.CARD_HEIGHT
 COMPACT_CARD_HEIGHT = 128  # slightly shorter cards in portrait/compact mode
 CARD_SLOT_WIDTH = 232    # CARD_WIDTH + 2*CARD_MARGIN from timeline_delegate.py
+CARD_ROW_GAP = 8         # vertical gap between wrapped rows in Expanded View
 
-_CHROME_HEIGHT = 96  # header + pinboard chips + search field + margins/spacing, roughly constant
+# Fallback only -- real callers (TimelineWindow) measure their own chrome's
+# actual rendered height (self._chrome.sizeHint()) and pass it in, since a
+# hardcoded guess here is exactly what let the Quick Shelf balloon well past
+# its ~190-240px target in practice: generic widget padding alone measured
+# ~150px against this constant's guess of 96. Kept only so callers that
+# don't (or can't) measure -- tests included -- still get a sane default.
+DEFAULT_CHROME_HEIGHT = 80
+
+# Expanded View: opt-in (Tab key / toggle button), never the default on
+# open -- grows the panel toward this fraction of the screen instead of the
+# Quick Shelf's compact card-height-driven target, so the card list can wrap
+# into a multi-row grid (more cards visible, not bigger individual cards).
+_EXPANDED_HEIGHT_FRACTION = 0.40
+_EXPANDED_HEIGHT_CEILING = 0.45
+# Safety ceiling for the default Quick Shelf, distinct from the Expanded
+# View target above -- never so tall it eats an unreasonable share of a
+# short/laptop screen even if a caller passes an unusually large chrome_height.
+_QUICK_SHELF_HEIGHT_CEILING = 0.30
 
 
 @dataclass(frozen=True)
@@ -58,6 +76,8 @@ class PanelGeometry:
     mode: ResponsiveMode
     card_height: int
     visible_cards_hint: int
+    expanded: bool = False
+    rows_hint: int = 1
 
 
 def classify_mode(logical_width: int, logical_height: int) -> ResponsiveMode:
@@ -84,28 +104,43 @@ def _margin_for(mode: ResponsiveMode, available_width: int) -> int:
 
 def calculate_panel_geometry(
     available_x: int, available_y: int, available_width: int, available_height: int,
+    chrome_height: int = DEFAULT_CHROME_HEIGHT, expanded: bool = False,
 ) -> PanelGeometry:
     """`available_*` is QScreen.availableGeometry() for the target screen --
     already excludes docked Plasma panels/docks, so anchoring to its bottom
     edge naturally sits above them rather than underneath. Recomputed fresh
     on every call (every Ctrl+Shift+V); nothing here is persisted as "last
-    known position" by design -- see the module docstring."""
+    known position" by design -- see the module docstring.
+
+    `chrome_height` should be the caller's actually-measured header+search
+    height (see TimelineWindow._apply_geometry) -- see DEFAULT_CHROME_HEIGHT
+    above for why a guessed constant alone isn't good enough. `expanded`
+    switches from the Quick Shelf's compact, card-height-driven target to
+    the taller Expanded View target."""
     mode = classify_mode(available_width, available_height)
     card_height = COMPACT_CARD_HEIGHT if mode is ResponsiveMode.COMPACT else BASE_CARD_HEIGHT
     margin = _margin_for(mode, available_width)
 
-    panel_height = card_height + _CHROME_HEIGHT
-    # Clamp: never so tall it eats an unreasonable share of a short screen,
-    # never so short the chrome above the cards has nowhere to go.
-    panel_height = max(150, min(panel_height, round(available_height * 0.4)))
+    if expanded:
+        panel_height = round(available_height * _EXPANDED_HEIGHT_FRACTION)
+        panel_height = max(card_height + chrome_height, panel_height)
+        panel_height = min(panel_height, round(available_height * _EXPANDED_HEIGHT_CEILING))
+    else:
+        panel_height = card_height + chrome_height
+        panel_height = max(150, min(panel_height, round(available_height * _QUICK_SHELF_HEIGHT_CEILING)))
 
     width = max(1, available_width - 2 * margin)
     x = available_x + margin
     y = available_y + available_height - panel_height
 
-    visible_cards_hint = max(1, width // CARD_SLOT_WIDTH)
+    cols = max(1, width // CARD_SLOT_WIDTH)
+    rows_hint = 1
+    if expanded:
+        rows_hint = max(1, (panel_height - chrome_height + CARD_ROW_GAP) // (card_height + CARD_ROW_GAP))
+    visible_cards_hint = cols * rows_hint
 
     return PanelGeometry(
         x=x, y=y, width=width, height=panel_height,
         mode=mode, card_height=card_height, visible_cards_hint=visible_cards_hint,
+        expanded=expanded, rows_hint=rows_hint,
     )

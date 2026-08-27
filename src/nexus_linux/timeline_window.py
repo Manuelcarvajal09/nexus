@@ -115,31 +115,60 @@ class TimelineWindow(QWidget):
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setObjectName("panelRoot")
+        self._expanded = False
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 12, 18, 14)
-        root.setSpacing(8)
+        root.setContentsMargins(14, 8, 14, 8)
+        root.setSpacing(6)
 
+        # Everything above the card row lives in one container so its real
+        # rendered height can be MEASURED (self._chrome.sizeHint().height())
+        # instead of guessed -- a hardcoded "chrome is roughly Npx" constant
+        # is exactly what let the Quick Shelf balloon to ~300px/28% of the
+        # screen in practice despite the geometry formula targeting ~240px:
+        # generic QPushButton/QLineEdit padding alone was already close to
+        # 150px before a single card was drawn. See panel_geometry.py.
+        self._chrome = QWidget()
+        chrome_layout = QVBoxLayout(self._chrome)
+        chrome_layout.setContentsMargins(0, 0, 0, 0)
+        chrome_layout.setSpacing(6)
+
+        # Single merged header row (compact wordmark + pinboard chips +
+        # counter + Expanded View toggle) -- one row instead of the two
+        # separate "header" and "pinboard chips" rows this used to be,
+        # since every extra row directly adds to the height the Quick Shelf
+        # is supposed to minimize.
         header = QHBoxLayout()
-        header.setSpacing(9)
+        header.setSpacing(8)
         title = QLabel("Nexus")
-        title.setObjectName("title")
+        title.setObjectName("titleCompact")
         header.addWidget(title)
-        header.addStretch()
-        self._count_badge = QLabel("0")
-        self._count_badge.setObjectName("badge")
-        header.addWidget(self._count_badge)
-        root.addLayout(header)
 
         self._pinboard_row = QHBoxLayout()
-        self._pinboard_row.setSpacing(6)
-        root.addLayout(self._pinboard_row)
+        self._pinboard_row.setSpacing(4)
+        header.addLayout(self._pinboard_row)
+        header.addStretch()
+
+        self._count_badge = QLabel("0")
+        self._count_badge.setObjectName("badgeCompact")
+        header.addWidget(self._count_badge)
+
+        self._expand_btn = QPushButton("Expandir  ⌄")
+        self._expand_btn.setObjectName("expandToggle")
+        self._expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._expand_btn.clicked.connect(self._toggle_expanded)
+        header.addWidget(self._expand_btn)
+        chrome_layout.addLayout(header)
 
         self._search = QLineEdit()
+        self._search.setObjectName("quickSearch")
         self._search.setPlaceholderText("Buscar, o simplemente empieza a escribir…")
         self._search.textChanged.connect(self._on_search_text_changed)
         self._search.returnPressed.connect(self._focus_list)
-        root.addWidget(self._search)
+        self._search.installEventFilter(self)
+        chrome_layout.addWidget(self._search)
+
+        root.addWidget(self._chrome)
 
         self._search_debounce = QTimer(self)
         self._search_debounce.setSingleShot(True)
@@ -167,6 +196,7 @@ class TimelineWindow(QWidget):
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setFixedHeight(CARD_HEIGHT + 16)
         self._list.activated.connect(self._on_activated)
+        self._list.installEventFilter(self)
         root.addWidget(self._list)
 
         self._empty_label = QLabel()
@@ -231,7 +261,38 @@ class TimelineWindow(QWidget):
         if event.key() == Qt.Key.Key_Escape:
             self.fade_hide()
             return
+        if event.key() == Qt.Key.Key_Tab:
+            self._toggle_expanded()
+            return
         super().keyPressEvent(event)
+
+    def eventFilter(self, obj, event) -> bool:
+        # Tab is swallowed by Qt's own focus-chain handling (QWidget.event())
+        # before it ever reaches a focused child's keyPressEvent or bubbles
+        # up to this window's -- confirmed live, this window's own
+        # keyPressEvent above never sees Tab while the search field or the
+        # card list has focus. An event filter on those two widgets is the
+        # reliable way to intercept it regardless of which one currently
+        # holds focus, per Qt's documented event-filter mechanism.
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
+            self._toggle_expanded()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _toggle_expanded(self) -> None:
+        """Quick Shelf (default) <-> Expanded View. Opt-in, never the
+        default on open -- see show_and_focus() resetting this to False on
+        every fresh Ctrl+Shift+V. Expanded grows the panel to ~40% of the
+        screen and lets the card row wrap into a grid (more cards visible,
+        not bigger cards); collapsing goes back to a single filmstrip row
+        anchored to the bottom edge."""
+        self._expanded = not self._expanded
+        self._list.setWrapping(self._expanded)
+        self._list.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded if self._expanded else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._expand_btn.setText("Colapsar  ⌃" if self._expanded else "Expandir  ⌄")
+        self._apply_geometry()
 
     def changeEvent(self, event) -> None:
         # Confirmed live (see module docstring): requesting focus for a
@@ -295,7 +356,7 @@ class TimelineWindow(QWidget):
         self._pinboard_buttons.clear()
 
         all_btn = QPushButton("Historial")
-        all_btn.setObjectName("flat")
+        all_btn.setObjectName("pinboardChipCompact")
         all_btn.setCheckable(True)
         all_btn.setChecked(self._current_pinboard_id == ALL_PINBOARDS_ID)
         all_btn.clicked.connect(lambda: self._select_pinboard(ALL_PINBOARDS_ID))
@@ -304,14 +365,12 @@ class TimelineWindow(QWidget):
 
         for board in self._storage.list_pinboards():
             btn = QPushButton(board.display_name)
-            btn.setObjectName("flat")
+            btn.setObjectName("pinboardChipCompact")
             btn.setCheckable(True)
             btn.setChecked(self._current_pinboard_id == board.id)
             btn.clicked.connect(lambda _checked, bid=board.id: self._select_pinboard(bid))
             self._pinboard_row.addWidget(btn)
             self._pinboard_buttons[board.id] = btn
-
-        self._pinboard_row.addStretch()
 
     # -- data -----------------------------------------------------------
 
@@ -388,11 +447,37 @@ class TimelineWindow(QWidget):
             log.warning("Sin pantallas disponibles (KWin reporta 0 outputs); no se puede posicionar Nexus.")
             return False
         avail = screen.availableGeometry()
-        geo = panel_geometry.calculate_panel_geometry(avail.x(), avail.y(), avail.width(), avail.height())
+        # Measured, not guessed: self._chrome.sizeHint() is the real,
+        # currently-rendered height of everything above the card row (header
+        # row + search field, with whatever fonts/padding/DPI apply right
+        # now), plus the root layout's own margins and the one spacing gap
+        # between the chrome container and the card row below it. A
+        # hardcoded "chrome is about Npx" constant is what let the Quick
+        # Shelf balloon well past its target in practice -- see the
+        # docstring on self._chrome above and panel_geometry.py.
+        margins = self.layout().contentsMargins()
+        root_overhead = margins.top() + margins.bottom() + self.layout().spacing()
+        chrome_height = self._chrome.sizeHint().height() + root_overhead
+        geo = panel_geometry.calculate_panel_geometry(
+            avail.x(), avail.y(), avail.width(), avail.height(),
+            chrome_height=chrome_height, expanded=self._expanded,
+        )
         self._delegate.set_card_height(geo.card_height)
-        list_height = geo.card_height + 16
+        list_height = geo.height - chrome_height
         self._list.setFixedHeight(list_height)
         self._empty_label.setFixedHeight(list_height)
+        # Confirmed live: growing the window via setGeometry() (collapsed ->
+        # Expanded View) takes effect immediately, but shrinking it back
+        # (Expanded View -> collapsed) silently did NOT -- self.height()
+        # right after setGeometry() still reported the old, larger size,
+        # and the extra space rendered as empty background at the bottom of
+        # the panel. The layout's cached minimum size from the taller
+        # (wrapped/multi-row) configuration was never invalidated by
+        # setFixedHeight() alone. Forcing a synchronous relayout before
+        # asking for the smaller geometry fixes it -- growing never needed
+        # this, only shrinking did.
+        self.layout().invalidate()
+        self.layout().activate()
         self.setGeometry(QRect(geo.x, geo.y, geo.width, geo.height))
         return True
 
@@ -404,6 +489,13 @@ class TimelineWindow(QWidget):
         # applied literally, not just in spirit. Geometry is recomputed from
         # scratch every time (see _apply_geometry/panel_geometry.py) -- never
         # a remembered/persisted position.
+        if self._expanded:
+            # Quick Shelf is the default on every fresh Ctrl+Shift+V --
+            # Expanded View is opt-in per-session, never sticky across opens.
+            self._expanded = False
+            self._list.setWrapping(False)
+            self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self._expand_btn.setText("Expandir  ⌄")
         if not self._apply_geometry():
             return
         self._pending_focus_claim = True
