@@ -1,6 +1,6 @@
 # Nexus 2.0 — Release Notes
 
-**Fecha:** 2026-08-26 · **Rama:** `nexus-2.0` (checkpoint estable previo: tag `nexus-linux-stable-1.x` en `main`; checkpoint Fase 2: `nexus-2.0-phase2-complete`; **release candidate actual: `nexus-2.0-rc1`**) · **Tests:** 230/230
+**Fecha:** 2026-08-26 · **Rama:** `nexus-2.0` (checkpoint estable previo: tag `nexus-linux-stable-1.x` en `main`; checkpoint Fase 2: `nexus-2.0-phase2-complete`; **release candidate actual: `nexus-2.0-rc1`**; trabajo posterior a RC1: Fase 2.6, sin tag nuevo aún) · **Tests:** 242/242
 
 Este documento resume todo lo entregado en Fase 1 (auditoría/cimientos), Fase 2 (producto/diseño) y Fase 2.5 (pulido de release candidate). Todo lo descrito aquí fue verificado en vivo contra el proceso real en Erwin — no es una lista de intenciones. Ver `NEXUS_2_RC1_REPORT.md` para el reporte final con evidencia condensada.
 
@@ -27,6 +27,140 @@ Sobre la base de Fase 2 (ya aceptada, no reescrita), esta ronda entregó:
 5. **Búsqueda enriquecida**: los títulos obtenidos de forma asíncrona (YouTube, OG) ahora se indexan para búsqueda — antes solo el contenido crudo del portapapeles era buscable.
 6. **Blindaje defensivo**: `TimelineWindow`/`StackWindow` ya no crashean si el compositor reporta temporalmente cero pantallas (condición real observada en vivo durante esta sesión — ver `PERFORMANCE_BASELINE.md` §0).
 7. **Re-verificación en vivo del criterio "MUY IMPORTANTE"**: Stack A,B,C consumido secuencialmente vía Ctrl+V real sin botón manual, confirmado de nuevo contra el proceso real (no solo los 30 tests unitarios ya existentes).
+
+## Fase 2.6 — Quick Shelf + Nexus como overlay temporal (posterior a RC1)
+
+Dos problemas planteados directamente sobre el RC1 ya aceptado: el panel de
+Ctrl+Shift+V "se sigue sintiendo demasiado invasivo visualmente", y Nexus
+podía tapar la zona donde el usuario iba a pegar en vez de restaurar el
+foco automáticamente. Ambos corregidos, verificados en vivo, sin tocar la
+arquitectura ya aceptada de Fase 2/2.5.
+
+### 1. Nexus es un overlay temporal, no un panel permanente (crítico)
+
+Bug real encontrado releyendo el código (no por un test que fallara):
+`TimelineWindow`, `MainWindow` y `StackWindow` escribían el portapapeles y
+enviaban el Ctrl+V sintético (`ydotool`) **antes** de ocultar la ventana de
+Nexus — el paste sintético se enviaba mientras Nexus todavía era la ventana
+activa, así que aterrizaba de vuelta en Nexus (típicamente su propio campo
+de búsqueda) en vez de en la aplicación destino.
+
+Corregido reordenando a **escribir → ocultar → sintetizar (diferido)** en
+los tres sitios. El delay (`POST_HIDE_PASTE_DELAY_MS = 40`) no es un valor
+inventado: se midió en vivo instrumentando `fade_hide()` con sondas en
+0/5/10/20/30/50/80/120ms — `isVisible()` cambia de forma síncrona con
+`hide()`, pero `isActiveWindow()` tarda entre 1 y 6.6ms en reflejar el
+cambio (round-trip async del compositor). 40ms da ~6x de margen sin ser
+perceptible. `stack.py` no se tocó: `StackWindow.advance()` solo difiere
+la llamada completa a `paste_next_and_advance()` con `QTimer.singleShot`
+después de ocultar, dejando la atomicidad ya probada (30 tests) intacta.
+
+También: el auto-consumo de Stack ante un Ctrl+V real (`app.py`) se
+desacopló de la visibilidad de la ventana — pegar A, B, C secuencialmente
+en otra app sigue vaciando el Stack aunque la ventana ya se haya ocultado
+— y ahora Stack se oculta siempre tras un consumo real ("smart dismiss"),
+no solo cuando queda vacío. Click-fuera-para-cerrar (Timeline y Stack) se
+implementó con un debounce de 150ms tras observar en vivo que un parpadeo
+transitorio de foco (actividad de fondo ajena a Nexus) podía cerrar el
+panel antes de que la siguiente tecla del usuario llegara.
+
+Verificado end-to-end en vivo: un texto marcador seleccionado vía Quick
+Paste aterrizó correctamente en un documento de `kwrite` aislado, no de
+vuelta en el buscador de Nexus. 3 tests nuevos (QApplication offscreen,
+sin display real) fijan el orden escribir-antes-de-ocultar-antes-de-
+sintetizar en los tres sitios de llamada.
+
+### 2. Quick Shelf: el panel de Ctrl+Shift+V, más compacto
+
+Auditoría en vivo (captura de pantalla acotada a la ventana, no de
+escritorio completo) reveló que el panel medía **314px (~29% de una
+pantalla 1080p)** contra un objetivo de ~240px que la propia fórmula de
+`panel_geometry.py` decía calcular. La causa: `_CHROME_HEIGHT = 96`
+("cabecera + chips + búsqueda, aproximadamente constante") era una
+suposición nunca validada contra el render real — el padding por defecto
+de `QPushButton`/`QLineEdit` ya sumaba solo ~150px antes de dibujar una
+sola card, y Qt aplica el tamaño mínimo real del layout cuando excede al
+que `setGeometry()` pide, sin avisar.
+
+Corregido en dos partes:
+
+1. **Medir, no adivinar.** El "chrome" (cabecera + búsqueda) ahora vive en
+   su propio widget contenedor; `TimelineWindow` lee su altura real
+   (`sizeHint()`) en cada apertura y se la pasa a
+   `calculate_panel_geometry(..., chrome_height=...)` en vez de una
+   constante fija.
+2. **Compactar de verdad.** Las 3 filas anteriores (título+contador,
+   chips de pinboard, búsqueda) se fusionaron en 2: una fila combinada
+   (logo compacto + chips + contador + botón "Expandir") y la búsqueda
+   debajo, con clases QSS dedicadas (`titleCompact`, `badgeCompact`,
+   `quickSearch`, `pinboardChipCompact`, `expandToggle`) que no tocan los
+   estilos que `MainWindow`/`StackWindow` siguen usando a tamaño normal.
+
+**Resultado medido en vivo (1920×1080): 232px (~21%), antes ~314px
+(~29%).**
+
+**Expanded View** (opt-in, nunca por defecto): Tab o el botón "Expandir"
+crece el panel a ~40% de la pantalla y permite que la cuadrícula de cards
+haga *wrap* a varias filas (más cards visibles, no cards más grandes).
+Cada apertura fresca de Ctrl+Shift+V vuelve a Quick Shelf aunque la sesión
+anterior haya quedado expandida. Tab se intercepta con un *event filter*
+sobre el buscador y la lista (no un `QShortcut`) porque `QWidget.event()`
+absorbe Tab para su propio manejo de foco antes de que llegue a
+`keyPressEvent` — confirmado en vivo.
+
+Bug adicional encontrado probando el colapso: agrandar la ventana con
+`setGeometry()` surtía efecto de inmediato, pero achicarla no —
+`self.height()` seguía reportando el tamaño grande justo después de
+`setGeometry()`, dejando un espacio vacío al fondo del panel. El tamaño
+mínimo cacheado del layout (de la configuración expandida) no se
+invalidaba solo con `setFixedHeight()`. Corregido forzando
+`self.layout().invalidate()` + `.activate()` antes de pedir la geometría
+más chica.
+
+**Esquinas redondeadas reales:** `#panelRoot` ya definía `border-radius`
+en QSS, pero sin `WA_TranslucentBackground` esa curva solo recortaba el
+*relleno pintado* — la superficie de la ventana seguía siendo un
+rectángulo opaco, así que las cuatro esquinas fuera de la curva mostraban
+un parche cuadrado del fondo por defecto de la plataforma en vez de
+transparencia real. Confirmado inspeccionando el canal alfa de una
+captura: esquina en `(0,0,0,0)` solo después de añadir el atributo; el
+cuerpo del panel sigue en alfa 255 (opaco). Medido antes/después contra
+el log existente de latencia (`ventana lista en Xms`): sin regresión
+(0.4-10.6ms, dentro del mismo rango que antes).
+
+### Qué quedó fuera de esta ronda (a propósito)
+
+- **Sombra suave / blur de fondo**: evaluado, no implementado. Requiere
+  o bien un margen dedicado al blur pintado a mano (afecta el cálculo de
+  geometría) o `QGraphicsDropShadowEffect` (renderizado offscreen) — dado
+  el requisito explícito de no tocar la latencia medida de Ctrl+Shift+V,
+  se dejó pendiente para medirlo con calma en su propio ciclo en vez de
+  añadirlo sin verificar el costo.
+- **Rediseño visual profundo de Stack** (Ctrl+Shift+C): revisado, no
+  rediseñado. Ya cumple los requisitos funcionales pedidos (card
+  SIGUIENTE clara, contador visible en el header y como "N restante",
+  badge de posición por item, botones Vaciar/Pegar siguiente visibles) —
+  la ventana es una `QWidget` decorada normal, no un overlay sin marco
+  como la Timeline, y convertirla arriesgaba la fiabilidad ya establecida
+  del Stack sin un pedido explícito de hacerlo. Candidato para un ciclo
+  dedicado si se decide llevarla al mismo tratamiento sin marco.
+- **Revisión visual profunda por tipo de card** (texto/URL/YouTube/
+  imagen/código/color/JSON/archivo): no repetida esta ronda — ya recibió
+  una pasada completa en Fase 2 (favicons, OG image, thumbnails de
+  YouTube, swatch de color, mono font para código/JSON) y se verificó que
+  sigue rindiendo bien a la nueva altura compacta de card, pero no se
+  auditó de cero campo por campo.
+- **Re-verificación multi-monitor con el ultrawide real**: sigue sin
+  poder probarse en hardware (el monitor de 34" aún no está conectado);
+  la lógica responsive (`panel_geometry.py`) ahora también cubre
+  Expanded View en las 6 resoluciones sintéticas ya existentes más 9
+  tests nuevos, pero contra escenarios sintéticos, no el monitor físico.
+
+### Tests
+
+242/242 pasando (230 heredados del RC1 + 3 de orden escribir/ocultar/
+sintetizar + 9 de `panel_geometry` para `chrome_height`/Expanded View).
+0 regresiones.
 
 ## Fase 1 — Core / Reliability (gate: PASS)
 
