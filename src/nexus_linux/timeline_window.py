@@ -41,8 +41,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import panel_geometry, styles
+from . import panel_geometry, styles, type_detection
 from .paste_service import PasteService
+from .preview_service import PreviewService
 from .storage import StorageService
 from .timeline_delegate import CARD_HEIGHT, ClipCardDelegate
 from .timeline_model import TimelineModel
@@ -81,13 +82,21 @@ class _TimelineListView(QListView):
 
 
 class TimelineWindow(QWidget):
-    def __init__(self, storage: StorageService, paste_service: PasteService, parent=None):
+    def __init__(
+        self, storage: StorageService, paste_service: PasteService,
+        preview_service: PreviewService | None = None, parent=None,
+    ):
         super().__init__(parent)
         self._storage = storage
         self._paste = paste_service
+        self._preview_service = preview_service
+        self._preview_data: dict = {}
         self._current_pinboard_id: int | None = ALL_PINBOARDS_ID
         self._pinboard_buttons: dict = {}
         self._pending_focus_claim = False
+
+        if preview_service is not None:
+            preview_service.preview_ready.connect(self._on_preview_ready)
 
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
@@ -127,6 +136,7 @@ class TimelineWindow(QWidget):
         self._list = _TimelineListView(self._type_to_search, self._on_activated)
         self._list.setModel(self._model)
         self._delegate = ClipCardDelegate(self._list)
+        self._delegate.set_preview_data(self._preview_data)
         self._list.setItemDelegate(self._delegate)
         self._list.setViewMode(QListView.ViewMode.IconMode)
         self._list.setFlow(QListView.Flow.LeftToRight)
@@ -261,6 +271,7 @@ class TimelineWindow(QWidget):
         query = self._search.text().strip()
         items = self._storage.recent(limit=MAX_ITEMS, query=query, pinboard_id=self._current_pinboard_id)
         self._model.set_items(items)
+        self._request_previews(items)
 
         self._count_badge.setText(str(len(items)))
         empty = len(items) == 0
@@ -277,6 +288,32 @@ class TimelineWindow(QWidget):
 
     def _on_search_text_changed(self) -> None:
         self._search_debounce.start()
+
+    def _request_previews(self, items: list) -> None:
+        """Cache-hit results land in self._preview_data synchronously (a
+        local SQLite read, not network) so the very first paint() already
+        shows enriched cards for anything already fetched -- most items,
+        after the first time each URL is seen, since app.py also requests a
+        preview at capture time (prefetch), not just when the Timeline
+        happens to be opened. A miss just leaves the fallback rendering in
+        place until preview_ready fires later."""
+        if self._preview_service is None:
+            return
+        for item in items:
+            if item.id in self._preview_data:
+                continue
+            detected = type_detection.detect(item.kind, item.text_content)
+            if detected not in ("url", "youtube"):
+                continue
+            cached = self._preview_service.request(item.id, item.text_content, is_youtube=(detected == "youtube"))
+            if cached is not None:
+                self._preview_data[item.id] = cached
+
+    def _on_preview_ready(self, item_id: int, data: dict) -> None:
+        self._preview_data[item_id] = data
+        row = self._model.row_for_id(item_id)
+        if row >= 0:
+            self._list.update(self._model.index(row, 0))
 
     # -- window lifecycle -------------------------------------------------
 

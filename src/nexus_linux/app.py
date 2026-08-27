@@ -23,12 +23,13 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QFont, QFontDatabase, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from . import dbus_service, paths, styles
+from . import dbus_service, paths, styles, type_detection
 from .clipboard_monitor import ClipboardMonitor
 from .evdev_stack_watcher import EvdevStackWatcher
 from .global_shortcuts import GlobalShortcuts
 from .main_window import MainWindow
 from .paste_service import PasteService
+from .preview_service import PreviewService
 from .stack import ClipStack
 from .stack_window import StackWindow
 from .storage import StorageService
@@ -125,8 +126,9 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
     # CRUD (rename/icon/reorder/delete) that doesn't fit a short horizontal
     # bar well -- reachable from the tray, not from the hot-path shortcut,
     # since those are occasional management actions, not the daily-use path.
+    preview_service = PreviewService(storage, parent=app)
     library_window = MainWindow(storage, paste_service)
-    timeline = TimelineWindow(storage, paste_service)
+    timeline = TimelineWindow(storage, paste_service, preview_service)
 
     clip_stack = ClipStack(storage=storage, paste_service=paste_service)
     restored_count = clip_stack.load_persisted()
@@ -151,6 +153,16 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
 
     def on_captured(item):
         log.info("Capturado clip #%s tipo=%s", item.id, item.kind)
+        # Prefetch link/YouTube metadata right away -- "URL detectada ->
+        # guardar item inmediatamente -> mostrar fallback -> worker de
+        # metadata -> cache -> actualizar card". By the time the user next
+        # opens Ctrl+Shift+V, this has usually already finished in the
+        # background, so the enriched card is there from the very first
+        # paint instead of popping in every time. request() is cache-first
+        # and returns immediately either way -- this never blocks capture.
+        detected = type_detection.detect(item.kind, item.text_content)
+        if detected in ("url", "youtube"):
+            preview_service.request(item.id, item.text_content, is_youtube=(detected == "youtube"))
         if library_window.isVisible():
             library_window.refresh()
         if timeline.isVisible():

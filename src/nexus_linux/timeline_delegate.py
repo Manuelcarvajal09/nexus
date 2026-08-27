@@ -6,6 +6,7 @@ or it would reintroduce the exact per-row cost Phase 1 spent an audit
 finding and fixing."""
 
 import json
+from urllib.parse import urlparse
 
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath
@@ -66,6 +67,14 @@ class ClipCardDelegate(QStyledItemDelegate):
     def __init__(self, parent=None, card_height: int = CARD_HEIGHT):
         super().__init__(parent)
         self.set_card_height(card_height)
+        # Reference (not a copy) to TimelineWindow's {item_id: preview dict}
+        # -- the window mutates this in place as PreviewService.preview_ready
+        # fires and triggers a repaint; the delegate just reads whatever is
+        # there at paint() time, synchronously, no network/blocking involved.
+        self._preview_data: dict = {}
+
+    def set_preview_data(self, preview_data: dict) -> None:
+        self._preview_data = preview_data
 
     def set_card_height(self, card_height: int) -> None:
         self._card_height = card_height
@@ -105,7 +114,9 @@ class ClipCardDelegate(QStyledItemDelegate):
         content = outer.adjusted(CARD_PADDING, CARD_PADDING, -CARD_PADDING, -CARD_PADDING)
         detected = type_detection.detect(item.kind, item.text_content)
 
-        if detected in ("image", "youtube") and item.kind == "image" and item.image_data:
+        if detected in ("url", "youtube"):
+            self._paint_url_card(painter, content, item, detected, t)
+        elif detected == "image" and item.kind == "image" and item.image_data:
             self._paint_image_card(painter, content, item, detected, t)
         elif detected == "color":
             self._paint_color_card(painter, content, item, t)
@@ -126,6 +137,55 @@ class ClipCardDelegate(QStyledItemDelegate):
         painter.restore()
 
     # -- per-type painters ------------------------------------------------
+
+    def _paint_url_card(self, painter, rect, item, detected, t) -> None:
+        """Renders enriched (favicon/OG image/title) when PreviewService has
+        already fetched it; otherwise the domain-only fallback -- this is
+        the 'mostrar fallback' step of the architecture, not an error
+        state. Never triggers a fetch itself: paint() must stay a pure,
+        synchronous, local read (see class docstring)."""
+        preview = self._preview_data.get(item.id)
+        og_image = preview.get("og_image") if preview else None
+        favicon = preview.get("favicon") if preview else None
+        title = (preview.get("title") if preview else None) or (item.text_content or "").strip()
+        domain = (preview.get("domain") if preview else None) or (urlparse(item.text_content or "").hostname or "")
+        channel = preview.get("channel") if preview else None
+
+        if og_image:
+            thumb_rect = rect.adjusted(0, 0, 0, -(rect.height() - self._thumb_height))
+            pixmap = thumbnails.rounded_rect_thumbnail(
+                f"og:{item.content_hash}", og_image, thumb_rect.width(), self._thumb_height, t.radius_chip,
+            )
+            painter.drawPixmap(thumb_rect.topLeft(), pixmap)
+            text_top = self._thumb_height + 6
+        else:
+            icon_size = 20
+            if favicon:
+                icon_pix = thumbnails.rounded_rect_thumbnail(
+                    f"favicon:{item.content_hash}", favicon, icon_size, icon_size, 4,
+                )
+            else:
+                icon_name = TYPE_ICON_NAMES.get(detected, "link")
+                icon_pix = styles.icon(icon_name, color=t.accent, size=icon_size).pixmap(icon_size, icon_size)
+            painter.drawPixmap(rect.left(), rect.top(), icon_pix)
+            text_top = 28
+
+        title_font = QFont(t.font_family.split(",")[0].strip(' "'))
+        title_font.setPointSize(11)
+        painter.setFont(title_font)
+        painter.setPen(QColor(t.text_primary))
+        text_rect = rect.adjusted(0, text_top, 0, -20)
+        painter.drawText(
+            text_rect,
+            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap),
+            (title or domain)[:220],
+        )
+
+        label = "YouTube" if detected == "youtube" else domain
+        if detected == "youtube" and channel:
+            label = f"{channel} · YouTube"
+        meta_rect = rect.adjusted(0, rect.height() - 16, 0, 0)
+        self._draw_meta_line(painter, meta_rect, item, label, t)
 
     def _paint_image_card(self, painter, rect, item, detected, t) -> None:
         thumb_rect = rect.adjusted(0, 0, 0, -(rect.height() - self._thumb_height))
