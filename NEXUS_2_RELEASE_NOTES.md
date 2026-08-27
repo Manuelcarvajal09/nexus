@@ -1,6 +1,6 @@
 # Nexus 2.0 — Release Notes
 
-**Fecha:** 2026-08-26 · **Rama:** `nexus-2.0` (checkpoint estable previo: tag `nexus-linux-stable-1.x` en `main`; checkpoint Fase 2: `nexus-2.0-phase2-complete`; **release candidate actual: `nexus-2.0-rc1`**; trabajo posterior a RC1: Fase 2.6, sin tag nuevo aún) · **Tests:** 242/242
+**Fecha:** 2026-08-26 · **Rama:** `nexus-2.0` (checkpoint estable previo: tag `nexus-linux-stable-1.x` en `main`; checkpoint Fase 2: `nexus-2.0-phase2-complete`; release candidate: `nexus-2.0-rc1`; **cierre final de geometría: `nexus-2.0-final`**) · **Tests:** 249/249
 
 Este documento resume todo lo entregado en Fase 1 (auditoría/cimientos), Fase 2 (producto/diseño) y Fase 2.5 (pulido de release candidate). Todo lo descrito aquí fue verificado en vivo contra el proceso real en Erwin — no es una lista de intenciones. Ver `NEXUS_2_RC1_REPORT.md` para el reporte final con evidencia condensada.
 
@@ -161,6 +161,63 @@ el log existente de latencia (`ventana lista en Xms`): sin regresión
 242/242 pasando (230 heredados del RC1 + 3 de orden escribir/ocultar/
 sintetizar + 9 de `panel_geometry` para `chrome_height`/Expanded View).
 0 regresiones.
+
+## Fase 2.7 — Cierre final de geometría (BOTTOM ANCHORED, ancho content-driven)
+
+Última iteración, explícitamente de cierre: "Nexus debe ser útil sin
+estorbar" — no maximizar información mostrada, minimizar la interrupción.
+El Quick Shelf de Fase 2.6 (232px, ~96% de ancho) seguía sintiéndose
+invasivo pese a ser más corto: una franja casi de borde a borde sigue
+"cortando" la composición visual aunque sea baja.
+
+**Decisión técnica evaluada en vivo con screenshot real** (kwrite
+maximizado como app de referencia detrás de Nexus, no un mockup): anclar
+Quick Shelf al borde inferior real es 100% estable en KDE Plasma 6 +
+KWin + Wayland vía `QScreen.availableGeometry()` — el panel queda
+literalmente pegado al borde (`y + height == available_height`, gap 0),
+sin ningún hack. **Se eligió ESTRATEGIA A (BOTTOM ANCHORED)**, no la B
+(floating), porque el anclaje es fiable — el problema nunca fue el
+anclaje, era el ANCHO.
+
+**Ancho: de porcentaje-de-pantalla a content-driven.** Antes,
+`width = available_width - 2*margin` (~96% en 1920px). Ahora, el ancho
+sale de "cuántas cards quiero ver cómodamente" (6 en STANDARD, 7 en WIDE,
+8 en ULTRAWIDE, 3 en COMPACT/portrait) más un margen, con un techo doble:
+porcentaje (90%) Y un ancho máximo absoluto en píxeles lógicos para
+WIDE/ULTRAWIDE (1700px / 1950px) — el mecanismo real que evita que un
+monitor de 34" convierta a Nexus en una barra gigante, no solo un
+porcentaje más bajo. El panel quedó centrado horizontalmente (antes:
+alineado a un margen fijo), reforzando la sensación de "bandeja flotante"
+incluso estando anclado abajo.
+
+**Medido en vivo (1920×1080, screenshot real sobre kwrite maximizado):**
+ancho 1468px (76% de 1920, dentro de la banda 65-78% que en la práctica
+resultó igual de cómoda con anclaje real que sin él), 6 cards legibles
+visibles, márgenes laterales simétricos confirmados por inspección de
+píxeles (240px cada lado). Gap inferior: 0 (el panel toca el borde real).
+
+**Altura: de 232px a 208px.** Cabecera fusionada en una sola fila
+(wordmark + chips + contador + Expandir) ya existía desde Fase 2.6;
+esta ronda apretó márgenes del layout raíz (18,12→10,4), spacing interno,
+y padding de QSS del buscador/chips/badges. Card height (148px) no se
+tocó — la reducción vino solo de chrome, tal como se pidió. 208px queda
+3px por encima del techo blando de 175-205px pedido; no se forzó más
+para no comprometer legibilidad (confirmado visualmente en cada paso,
+proceso screenshot-driven: captura → mide → ajusta → recaptura).
+
+**Rendimiento:** medido end-to-end de nuevo (ydotool → log, timestamps de
+alta precisión, 15 muestras limpias): **p50 = 28.2ms, p95 = 30.7ms** —
+en línea con el ~25-26ms ya documentado, sin regresión. Interno
+(`show_and_focus` a "ventana lista"): p50 1.0ms, p95 1.3ms sobre 54
+muestras de esta sesión.
+
+**Qué NO se tocó en esta ronda** (por instrucción explícita): sin nuevas
+features, sin otra auditoría, sin tocar `stack.py`/`app.py`/
+`paste_service.py` (0 bugs reales encontrados en el core esta vez), sin
+blur.
+
+Tests: 249/249 (242 heredados + 7 nuevos de ancho content-driven en
+`panel_geometry.py`).
 
 ## Fase 1 — Core / Reliability (gate: PASS)
 

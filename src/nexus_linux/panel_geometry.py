@@ -47,6 +47,32 @@ COMPACT_CARD_HEIGHT = 128  # slightly shorter cards in portrait/compact mode
 CARD_SLOT_WIDTH = 232    # CARD_WIDTH + 2*CARD_MARGIN from timeline_delegate.py
 CARD_ROW_GAP = 8         # vertical gap between wrapped rows in Expanded View
 
+# Quick Shelf width is a CONTENT-DRIVEN target -- "how many cards do we want
+# comfortably visible" -- not a raw fraction of the screen. A plain
+# width = available_width * percentage is exactly what turns a 34" ultrawide
+# into a floor-to-ceiling bar: 90% of 3440px is still ~3100px of cards
+# nobody asked to see. 5-7 well-sized cards beats 10+ small ones crammed
+# edge to edge (confirmed by choice, not just measurement -- see
+# NEXUS_2_RELEASE_NOTES.md Fase 2.7).
+_TARGET_VISIBLE_CARDS = {
+    ResponsiveMode.COMPACT: 3,
+    ResponsiveMode.STANDARD: 6,
+    ResponsiveMode.WIDE: 7,
+    ResponsiveMode.ULTRAWIDE: 8,
+}
+# Absolute width ceilings (logical px), independent of screen size -- the
+# actual mechanism that stops ultrawide from producing a giant strip. WIDE
+# and ULTRAWIDE get one; STANDARD/COMPACT never need it since their
+# content-driven width is already well under any reasonable cap.
+_ABSOLUTE_MAX_SHELF_WIDTH = {
+    ResponsiveMode.WIDE: 1700,
+    ResponsiveMode.ULTRAWIDE: 1950,
+}
+# Percentage ceiling, applied on top of the above -- belt and suspenders
+# against a content-driven width that would otherwise dominate an unusually
+# narrow "wide-classified" screen.
+_WIDTH_CEILING_FRACTION = 0.90
+
 # Fallback only -- real callers (TimelineWindow) measure their own chrome's
 # actual rendered height (self._chrome.sizeHint()) and pass it in, since a
 # hardcoded guess here is exactly what let the Quick Shelf balloon well past
@@ -129,8 +155,19 @@ def calculate_panel_geometry(
         panel_height = card_height + chrome_height
         panel_height = max(150, min(panel_height, round(available_height * _QUICK_SHELF_HEIGHT_CEILING)))
 
-    width = max(1, available_width - 2 * margin)
-    x = available_x + margin
+    # Content-driven width: start from how many cards we actually want
+    # visible, not from a raw fraction of the screen -- see
+    # _TARGET_VISIBLE_CARDS's docstring. expanded doesn't widen the panel
+    # (only Expanded View's extra ROWS change with it); a wider Quick Shelf
+    # was never the ask, more visible rows was.
+    target_cards = _TARGET_VISIBLE_CARDS[mode]
+    content_width = target_cards * CARD_SLOT_WIDTH + 2 * margin
+    width = min(content_width, round(available_width * _WIDTH_CEILING_FRACTION))
+    abs_max = _ABSOLUTE_MAX_SHELF_WIDTH.get(mode)
+    if abs_max is not None:
+        width = min(width, abs_max)
+    width = max(1, min(width, available_width))
+    x = available_x + (available_width - width) // 2
     y = available_y + available_height - panel_height
 
     cols = max(1, width // CARD_SLOT_WIDTH)

@@ -126,8 +126,8 @@ class TimelineWindow(QWidget):
         self._expanded = False
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 8, 14, 8)
-        root.setSpacing(6)
+        root.setContentsMargins(10, 4, 10, 4)
+        root.setSpacing(4)
 
         # Everything above the card row lives in one container so its real
         # rendered height can be MEASURED (self._chrome.sizeHint().height())
@@ -139,7 +139,7 @@ class TimelineWindow(QWidget):
         self._chrome = QWidget()
         chrome_layout = QVBoxLayout(self._chrome)
         chrome_layout.setContentsMargins(0, 0, 0, 0)
-        chrome_layout.setSpacing(6)
+        chrome_layout.setSpacing(3)
 
         # Single merged header row (compact wordmark + pinboard chips +
         # counter + Expanded View toggle) -- one row instead of the two
@@ -147,7 +147,7 @@ class TimelineWindow(QWidget):
         # since every extra row directly adds to the height the Quick Shelf
         # is supposed to minimize.
         header = QHBoxLayout()
-        header.setSpacing(8)
+        header.setSpacing(6)
         title = QLabel("Nexus")
         title.setObjectName("titleCompact")
         header.addWidget(title)

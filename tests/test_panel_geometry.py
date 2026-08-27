@@ -131,6 +131,58 @@ class TestModeSpecificBehavior:
         assert ultrawide_margin > standard_margin
 
 
+class TestContentDrivenWidth:
+    """Width is "how many cards do we want visible", not "what fraction of
+    the screen" -- a plain percentage is exactly what turns a 34" ultrawide
+    into a floor-to-ceiling bar (see Fase 2.7). These pin down that the
+    Quick Shelf stays a moderate, centered tray at every screen size
+    instead of stretching edge to edge just because the screen is wide."""
+
+    def test_standard_width_never_dominates_the_screen(self):
+        """Explicit user complaint: even a horizontal, shorter panel still
+        felt invasive at ~96% width. Must leave real, visible margins."""
+        geo = calculate_panel_geometry(0, 0, 1920, 1080)
+        assert geo.width <= round(1920 * 0.85)
+
+    def test_ultrawide_width_has_an_absolute_ceiling_not_just_a_percentage(self):
+        """The actual mechanism that stops ultrawide from becoming a giant
+        strip: an absolute cap, independent of how wide the screen is."""
+        geo = calculate_panel_geometry(0, 0, 3440, 1440)
+        assert geo.width <= 2000
+        wider_screen = calculate_panel_geometry(0, 0, 3840, 1600)
+        assert wider_screen.width <= 2000
+
+    def test_ultrawide_width_ratio_is_far_below_a_naive_percentage(self):
+        """A plain width=screen*0.9 would give ~3100px on a 3440 screen --
+        confirms the content-driven formula lands nowhere near that."""
+        geo = calculate_panel_geometry(0, 0, 3440, 1440)
+        assert geo.width < 3440 * 0.65
+
+    def test_panel_is_horizontally_centered_not_left_aligned(self):
+        """Bottom-anchored no longer means edge-to-edge -- when the
+        content-driven width is narrower than the available width, the
+        leftover space must be split evenly on both sides, not dumped
+        entirely on the right."""
+        geo = calculate_panel_geometry(0, 0, 3440, 1440)
+        left_margin = geo.x
+        right_margin = 3440 - (geo.x + geo.width)
+        assert abs(left_margin - right_margin) <= 1
+
+    def test_standard_shows_a_handful_of_cards_not_ten_plus(self):
+        """User preference: 5-7 comfortably legible cards beats 10+ tiny
+        ones crammed edge to edge on a normal desktop monitor."""
+        geo = calculate_panel_geometry(0, 0, 1920, 1080)
+        assert 4 <= geo.visible_cards_hint <= 8
+
+    def test_wider_screen_still_shows_more_cards_but_within_reason(self):
+        ultrawide = calculate_panel_geometry(0, 0, 3440, 1440)
+        assert ultrawide.visible_cards_hint <= 10
+
+    def test_compact_portrait_width_is_conservative(self):
+        geo = calculate_panel_geometry(0, 0, 1080, 1920)
+        assert geo.width <= round(1080 * 0.80)
+
+
 class TestChromeHeightParameter:
     """chrome_height is meant to be the caller's actually-measured header+
     search height (see TimelineWindow._apply_geometry) -- these pin down

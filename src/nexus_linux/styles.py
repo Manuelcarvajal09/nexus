@@ -428,7 +428,7 @@ QLabel#badge {{
 }}
 
 QLabel#titleCompact {{
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: -0.1px;
     color: {t.text_primary};
@@ -438,14 +438,14 @@ QLabel#badgeCompact {{
     background-color: {t.accent_dim};
     color: {t.accent};
     border-radius: 6px;
-    padding: 1px 6px;
+    padding: 0px 6px;
     font-size: 9.5px;
     font-weight: 600;
 }}
 
 QLineEdit#quickSearch {{
-    padding: 5px 10px;
-    font-size: 12.5px;
+    padding: 2px 9px;
+    font-size: 12px;
 }}
 
 QPushButton#pinboardChipCompact {{
@@ -453,8 +453,8 @@ QPushButton#pinboardChipCompact {{
     border: none;
     color: {t.text_secondary};
     font-weight: 500;
-    font-size: 11px;
-    padding: 3px 9px;
+    font-size: 10.5px;
+    padding: 2px 8px;
 }}
 
 QPushButton#pinboardChipCompact:hover {{
@@ -473,9 +473,9 @@ QPushButton#expandToggle {{
     border: 1px solid {t.card_border};
     border-radius: {t.radius_chip}px;
     color: {t.text_secondary};
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 600;
-    padding: 3px 8px;
+    padding: 2px 7px;
 }}
 
 QPushButton#expandToggle:hover {{
