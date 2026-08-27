@@ -58,8 +58,24 @@ def _mono_font(base_size: int = 11) -> QFont:
 
 
 class ClipCardDelegate(QStyledItemDelegate):
+    """card_height defaults to the standard CARD_HEIGHT but is overridable
+    per responsive mode (see panel_geometry.py) -- COMPACT/portrait uses a
+    shorter card. thumb_height (the dominant image/color area) scales down
+    proportionally so a shorter card doesn't just clip its thumbnail."""
+
+    def __init__(self, parent=None, card_height: int = CARD_HEIGHT):
+        super().__init__(parent)
+        self.set_card_height(card_height)
+
+    def set_card_height(self, card_height: int) -> None:
+        self._card_height = card_height
+        # THUMB_HEIGHT (88) leaves 60px below it for the meta line + padding
+        # at the standard card height -- keep that same fixed footer budget
+        # at any card height so the meta line never gets cramped or clipped.
+        self._thumb_height = max(40, card_height - (CARD_HEIGHT - THUMB_HEIGHT))
+
     def sizeHint(self, option, index) -> QSize:
-        return QSize(CARD_WIDTH, CARD_HEIGHT)
+        return QSize(CARD_WIDTH, self._card_height)
 
     def paint(self, painter: QPainter, option, index) -> None:
         item = index.data(ITEM_ROLE)
@@ -112,17 +128,17 @@ class ClipCardDelegate(QStyledItemDelegate):
     # -- per-type painters ------------------------------------------------
 
     def _paint_image_card(self, painter, rect, item, detected, t) -> None:
-        thumb_rect = rect.adjusted(0, 0, 0, -(rect.height() - THUMB_HEIGHT))
+        thumb_rect = rect.adjusted(0, 0, 0, -(rect.height() - self._thumb_height))
         pixmap = thumbnails.rounded_rect_thumbnail(
-            item.content_hash, item.image_data, thumb_rect.width(), THUMB_HEIGHT, t.radius_chip,
+            item.content_hash, item.image_data, thumb_rect.width(), self._thumb_height, t.radius_chip,
         )
         painter.drawPixmap(thumb_rect.topLeft(), pixmap)
-        meta_rect = rect.adjusted(0, THUMB_HEIGHT + 6, 0, 0)
+        meta_rect = rect.adjusted(0, self._thumb_height + 6, 0, 0)
         self._draw_meta_line(painter, meta_rect, item, TYPE_LABELS.get(detected, "Imagen"), t)
 
     def _paint_color_card(self, painter, rect, item, t) -> None:
         color = _parse_color(item.text_content or "") or QColor(t.accent)
-        swatch_rect = rect.adjusted(0, 0, 0, -(rect.height() - THUMB_HEIGHT))
+        swatch_rect = rect.adjusted(0, 0, 0, -(rect.height() - self._thumb_height))
         swatch_path = QPainterPath()
         swatch_path.addRoundedRect(QRectF(swatch_rect), t.radius_chip, t.radius_chip)
         painter.fillPath(swatch_path, color)
@@ -134,7 +150,7 @@ class ClipCardDelegate(QStyledItemDelegate):
         value_font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(value_font)
         painter.setPen(QColor(t.text_primary))
-        value_rect = rect.adjusted(0, THUMB_HEIGHT + 8, 0, 0)
+        value_rect = rect.adjusted(0, self._thumb_height + 8, 0, 0)
         painter.drawText(value_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, item.text_content.strip())
 
         meta_rect = value_rect.adjusted(0, 20, 0, 0)

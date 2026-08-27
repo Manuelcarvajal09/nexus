@@ -1,18 +1,23 @@
-"""Nexus Timeline: the Ctrl+Shift+V experience, rebuilt for Phase 2 around a
-horizontal card bar docked to the bottom of the screen (see
-PASTE_PRODUCT_ANALYSIS.md §5 for why this shape, and the live positioning
-test that confirmed the geometry itself is achievable with plain PySide6 on
-this KWin/Wayland session -- no layer-shell binding needed).
+"""Nexus Timeline: the Ctrl+Shift+V experience -- a surface deliberately
+docked to the bottom of the active screen (see PASTE_PRODUCT_ANALYSIS.md §5
+for why this shape), not a normal window that happens to open down there.
+FramelessWindowHint on purpose: no title bar means no drag handle and no
+resize grip to begin with, so there's no affordance for the user to
+accidentally reposition or resize it, and the window never has a stored
+position to fall out of sync with reality -- geometry is recomputed from
+scratch by panel_geometry.py on every single open (see
+resolve_target_screen()/show_and_focus() below), never persisted.
 
-Deliberately NOT frameless, unlike an early version of this window: a
-FramelessWindowHint toplevel measurably failed to reliably hold Wayland
-keyboard focus after activation on this KWin session (confirmed live with
-changeEvent/focusWidget instrumentation -- see git history on this file),
-so typed input and Return intermittently landed on whatever window was
-active before Nexus, not on Nexus itself. A normal decorated window
-(same WindowStaysOnTopHint MainWindow/StackWindow already use) does not
-have that problem. A thin title bar is a real but acceptable trade for
-keyboard input actually working.
+Root cause note kept for posterity (an earlier version of this window WAS
+frameless, appeared to fail to hold Wayland keyboard focus, and was
+temporarily reverted to a decorated window over it -- see git history):
+the actual bug was that requesting child-widget focus immediately after
+show(), or even one deferred event-loop tick later via
+QTimer.singleShot(0, ...), races Wayland's own activation sequence.
+Re-tested with FramelessWindowHint restored ALONGSIDE the real fix (tying
+the focus claim to the window's genuine QEvent.ActivationChange, see
+changeEvent below) and confirmed live: frameless holds focus fine. The
+frameless flag was never the problem.
 
 Keyboard model mirrors Paste's own (PASTE_PRODUCT_ANALYSIS.md §11): the
 search field has focus once the window is genuinely active; Return moves
@@ -36,7 +41,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import styles
+from . import panel_geometry, styles
 from .paste_service import PasteService
 from .storage import StorageService
 from .timeline_delegate import CARD_HEIGHT, ClipCardDelegate
@@ -44,7 +49,6 @@ from .timeline_model import TimelineModel
 
 log = logging.getLogger("nexus.timeline")
 
-BAR_HEIGHT = 214
 MAX_ITEMS = 200
 ALL_PINBOARDS_ID = None  # sentinel: no pinboard filter, i.e. full history
 
@@ -85,6 +89,7 @@ class TimelineWindow(QWidget):
         self._pinboard_buttons: dict = {}
         self._pending_focus_claim = False
 
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setObjectName("panelRoot")
 
@@ -121,7 +126,8 @@ class TimelineWindow(QWidget):
         self._model = TimelineModel(self)
         self._list = _TimelineListView(self._type_to_search, self._on_activated)
         self._list.setModel(self._model)
-        self._list.setItemDelegate(ClipCardDelegate(self._list))
+        self._delegate = ClipCardDelegate(self._list)
+        self._list.setItemDelegate(self._delegate)
         self._list.setViewMode(QListView.ViewMode.IconMode)
         self._list.setFlow(QListView.Flow.LeftToRight)
         self._list.setWrapping(False)
@@ -274,18 +280,32 @@ class TimelineWindow(QWidget):
 
     # -- window lifecycle -------------------------------------------------
 
-    def _target_geometry(self) -> QRect:
-        screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+    def resolve_target_screen(self):
+        """Cursor position, not "primary screen" -- see the panel_geometry
+        module docstring for why this is the right monitor-selection policy
+        under Wayland (a plain client has no fast, portable way to ask which
+        OTHER application's window is active)."""
+        return QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+
+    def _apply_geometry(self) -> None:
+        screen = self.resolve_target_screen()
         avail = screen.availableGeometry()
-        return QRect(avail.x(), avail.y() + avail.height() - BAR_HEIGHT, avail.width(), BAR_HEIGHT)
+        geo = panel_geometry.calculate_panel_geometry(avail.x(), avail.y(), avail.width(), avail.height())
+        self._delegate.set_card_height(geo.card_height)
+        list_height = geo.card_height + 16
+        self._list.setFixedHeight(list_height)
+        self._empty_label.setFixedHeight(list_height)
+        self.setGeometry(QRect(geo.x, geo.y, geo.width, geo.height))
 
     def show_and_focus(self) -> None:
         # Show first (with whatever the model already holds from last time),
         # then enrich: the fresh query/model-reset is deferred one event-loop
         # tick so the window is guaranteed to already be painted on screen
         # before that work runs -- "mostrar primero, después enriquecer"
-        # applied literally, not just in spirit.
-        self.setGeometry(self._target_geometry())
+        # applied literally, not just in spirit. Geometry is recomputed from
+        # scratch every time (see _apply_geometry/panel_geometry.py) -- never
+        # a remembered/persisted position.
+        self._apply_geometry()
         self._pending_focus_claim = True
         self.show()
         self.raise_()
