@@ -157,6 +157,12 @@ class Pinboard:
 class StorageService:
     def __init__(self, db_path: Path = paths.DB_PATH):
         paths.ensure_dirs()
+        # Kept for callers that need their own connection to the same file
+        # on a different thread (sqlite3 connections are not thread-safe to
+        # share -- see preview_service.py's _FetchTask, which opens its own
+        # StorageService(db_path=storage.db_path) rather than touching this
+        # instance's self._conn from a worker thread).
+        self.db_path = db_path
         self._conn = sqlite3.connect(str(db_path))
         self._conn.execute("PRAGMA foreign_keys = ON")
         # WAL lets a future reader (backup, diagnostics) run concurrently with

@@ -45,6 +45,20 @@ def storage():
 
 
 @pytest.fixture
+def file_storage(tmp_path):
+    """A real file-backed database, not ':memory:' -- needed by anything
+    that opens a SECOND connection to the same data from another thread
+    (preview_service.py's background fetch tasks). Separate connections to
+    ':memory:' are each their own independent, unreachable database (that's
+    what ':memory:' means), so this fixture exists specifically for tests
+    that need real cross-connection/cross-thread sharing; everything else
+    should keep using the faster, fully-isolated `storage` fixture above."""
+    svc = StorageService(db_path=tmp_path / "test.sqlite")
+    yield svc
+    svc.close()
+
+
+@pytest.fixture
 def paste_service():
     return FakePasteService()
 
