@@ -139,3 +139,78 @@ class TestEdgeCases:
 
     def test_delete_nonexistent_id_does_not_raise(self, storage):
         storage.delete(999_999)  # must not raise
+
+
+class TestPreviewCache:
+    def test_miss_on_empty_cache(self, storage):
+        assert storage.get_preview_cache("https://example.com") is None
+
+    def test_save_then_get_round_trips(self, storage):
+        storage.save_preview_cache(
+            "https://example.com", domain="example.com", title="Example",
+            description="A description", favicon=b"ICO", og_image=b"PNG",
+        )
+        cached = storage.get_preview_cache("https://example.com")
+        assert cached["domain"] == "example.com"
+        assert cached["title"] == "Example"
+        assert cached["description"] == "A description"
+        assert cached["favicon"] == b"ICO"
+        assert cached["og_image"] == b"PNG"
+        assert cached["status"] == "ok"
+
+    def test_different_urls_do_not_collide(self, storage):
+        storage.save_preview_cache("https://a.com", domain="a.com", title="A")
+        storage.save_preview_cache("https://b.com", domain="b.com", title="B")
+        assert storage.get_preview_cache("https://a.com")["title"] == "A"
+        assert storage.get_preview_cache("https://b.com")["title"] == "B"
+
+    def test_saving_again_overwrites_not_duplicates(self, storage):
+        storage.save_preview_cache("https://example.com", domain="example.com", title="Old")
+        storage.save_preview_cache("https://example.com", domain="example.com", title="New")
+        assert storage.get_preview_cache("https://example.com")["title"] == "New"
+        count = storage._conn.execute("SELECT COUNT(*) FROM url_preview_cache").fetchone()[0]
+        assert count == 1
+
+    def test_youtube_fields_round_trip(self, storage):
+        storage.save_preview_cache(
+            "https://youtube.com/watch?v=x", domain="youtube.com", title="A Video",
+            channel="A Channel", is_youtube=True, og_image=b"THUMB",
+        )
+        cached = storage.get_preview_cache("https://youtube.com/watch?v=x")
+        assert cached["is_youtube"] is True
+        assert cached["channel"] == "A Channel"
+
+    def test_failed_status_stored_and_retrieved(self, storage):
+        storage.save_preview_cache("https://down.example.com", domain="down.example.com", status="failed")
+        cached = storage.get_preview_cache("https://down.example.com")
+        assert cached["status"] == "failed"
+
+    def test_expired_ok_entry_is_a_miss(self, storage):
+        storage.save_preview_cache("https://example.com", domain="example.com", title="Stale")
+        # Backdate fetched_at past the OK ttl.
+        storage._conn.execute(
+            "UPDATE url_preview_cache SET fetched_at = ? WHERE url = ?",
+            (time.time() - 8 * 86400, "https://example.com"),
+        )
+        storage._conn.commit()
+        assert storage.get_preview_cache("https://example.com") is None
+
+    def test_expired_failed_entry_is_a_miss_sooner_than_ok(self, storage):
+        storage.save_preview_cache("https://down.example.com", domain="down.example.com", status="failed")
+        storage._conn.execute(
+            "UPDATE url_preview_cache SET fetched_at = ? WHERE url = ?",
+            (time.time() - 7200, "https://down.example.com"),  # 2h ago, past the 1h failed TTL
+        )
+        storage._conn.commit()
+        assert storage.get_preview_cache("https://down.example.com") is None
+
+    def test_cache_size_is_capped(self, storage, monkeypatch):
+        import nexus_linux.storage as storage_module
+        monkeypatch.setattr(storage_module, "PREVIEW_CACHE_MAX_ENTRIES", 3)
+        for i in range(5):
+            storage.save_preview_cache(f"https://site{i}.com", domain=f"site{i}.com", title=str(i))
+        count = storage._conn.execute("SELECT COUNT(*) FROM url_preview_cache").fetchone()[0]
+        assert count == 3
+        # The most recently saved entries survive eviction, not the oldest.
+        assert storage.get_preview_cache("https://site4.com") is not None
+        assert storage.get_preview_cache("https://site0.com") is None

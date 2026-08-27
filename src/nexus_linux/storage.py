@@ -73,7 +73,33 @@ CREATE TABLE IF NOT EXISTS stack_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Link/YouTube preview cache (Phase 2.5). Keyed by a hash of the URL
+-- string itself, not content_hash -- the same URL can appear in a
+-- kind='url' item (captured via uri-list) and a kind='text' item (typed or
+-- pasted as plain text) with two different content_hash values, and both
+-- should share one fetch. status='failed' rows are kept (not just
+-- discarded) with a short TTL so a transient offline moment doesn't cause
+-- an immediate, indefinite retry storm -- see preview_service.py.
+CREATE TABLE IF NOT EXISTS url_preview_cache (
+    url_hash TEXT PRIMARY KEY,
+    url TEXT NOT NULL,
+    domain TEXT,
+    title TEXT,
+    description TEXT,
+    favicon BLOB,
+    og_image BLOB,
+    is_youtube INTEGER NOT NULL DEFAULT 0,
+    channel TEXT,
+    status TEXT NOT NULL,
+    fetched_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_url_preview_cache_fetched_at ON url_preview_cache(fetched_at);
 """
+
+PREVIEW_CACHE_MAX_ENTRIES = 1000
+PREVIEW_CACHE_TTL_OK_S = 7 * 86400
+PREVIEW_CACHE_TTL_FAILED_S = 3600
 
 # Same palette/suggestions as Pinboard.swift, so a board created here looks
 # like one created in the original.
@@ -284,6 +310,63 @@ class StorageService:
         ).fetchone()
         reversed_order = row is not None and row[0] == "1"
         return [r[0] for r in rows], reversed_order
+
+    # -- Link/YouTube preview cache ----------------------------------------
+
+    @staticmethod
+    def _url_hash(url: str) -> str:
+        return hashlib.sha256(url.encode("utf-8", "surrogatepass")).hexdigest()
+
+    def get_preview_cache(self, url: str) -> Optional[dict]:
+        """Returns None on a cache miss OR a stale entry (expired TTL,
+        status-dependent -- see PREVIEW_CACHE_TTL_*) so the caller always
+        treats both the same way: go fetch it. Never raises; a corrupt or
+        missing row is just a miss, not an error the UI needs to handle."""
+        row = self._conn.execute(
+            "SELECT url, domain, title, description, favicon, og_image, is_youtube, channel, status, fetched_at "
+            "FROM url_preview_cache WHERE url_hash = ?",
+            (self._url_hash(url),),
+        ).fetchone()
+        if row is None:
+            return None
+        (_url, domain, title, description, favicon, og_image,
+         is_youtube, channel, status, fetched_at) = row
+        ttl = PREVIEW_CACHE_TTL_OK_S if status == "ok" else PREVIEW_CACHE_TTL_FAILED_S
+        if time.time() - fetched_at > ttl:
+            return None
+        return {
+            "domain": domain, "title": title, "description": description,
+            "favicon": favicon, "og_image": og_image, "is_youtube": bool(is_youtube),
+            "channel": channel, "status": status,
+        }
+
+    def save_preview_cache(
+        self, url: str, *, domain: Optional[str], title: Optional[str] = None,
+        description: Optional[str] = None, favicon: Optional[bytes] = None,
+        og_image: Optional[bytes] = None, is_youtube: bool = False,
+        channel: Optional[str] = None, status: str = "ok",
+    ) -> None:
+        self._conn.execute(
+            """INSERT INTO url_preview_cache
+               (url_hash, url, domain, title, description, favicon, og_image, is_youtube, channel, status, fetched_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(url_hash) DO UPDATE SET
+                   url=excluded.url, domain=excluded.domain, title=excluded.title,
+                   description=excluded.description, favicon=excluded.favicon,
+                   og_image=excluded.og_image, is_youtube=excluded.is_youtube,
+                   channel=excluded.channel, status=excluded.status, fetched_at=excluded.fetched_at""",
+            (self._url_hash(url), url, domain, title, description, favicon, og_image,
+             int(is_youtube), channel, status, time.time()),
+        )
+        # Cap total cache size -- evict oldest-fetched rows beyond the limit
+        # rather than letting it grow unboundedly over a long-running session.
+        self._conn.execute(
+            """DELETE FROM url_preview_cache WHERE url_hash NOT IN (
+                   SELECT url_hash FROM url_preview_cache ORDER BY fetched_at DESC LIMIT ?
+               )""",
+            (PREVIEW_CACHE_MAX_ENTRIES,),
+        )
+        self._conn.commit()
 
     # -- Pinboards --------------------------------------------------------
 
