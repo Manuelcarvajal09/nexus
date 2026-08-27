@@ -324,8 +324,20 @@ class TimelineWindow(QWidget):
         OTHER application's window is active)."""
         return QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
 
-    def _apply_geometry(self) -> None:
+    def _apply_geometry(self) -> bool:
+        """Returns False (and leaves geometry untouched) if there is
+        genuinely no screen to position against -- observed live on Erwin:
+        KWin can transiently report zero outputs (supportInformation's own
+        "Number of Screens: 0", seen mid-session here, likely a DPMS/screen-
+        blank recovery hiccup, not anything Nexus did). Both
+        QGuiApplication.screenAt() and primaryScreen() return None in that
+        state; calling .availableGeometry() on None would crash the slot
+        this runs from instead of just failing to show a panel that
+        couldn't be positioned meaningfully anyway."""
         screen = self.resolve_target_screen()
+        if screen is None:
+            log.warning("Sin pantallas disponibles (KWin reporta 0 outputs); no se puede posicionar Nexus.")
+            return False
         avail = screen.availableGeometry()
         geo = panel_geometry.calculate_panel_geometry(avail.x(), avail.y(), avail.width(), avail.height())
         self._delegate.set_card_height(geo.card_height)
@@ -333,6 +345,7 @@ class TimelineWindow(QWidget):
         self._list.setFixedHeight(list_height)
         self._empty_label.setFixedHeight(list_height)
         self.setGeometry(QRect(geo.x, geo.y, geo.width, geo.height))
+        return True
 
     def show_and_focus(self) -> None:
         # Show first (with whatever the model already holds from last time),
@@ -342,7 +355,8 @@ class TimelineWindow(QWidget):
         # applied literally, not just in spirit. Geometry is recomputed from
         # scratch every time (see _apply_geometry/panel_geometry.py) -- never
         # a remembered/persisted position.
-        self._apply_geometry()
+        if not self._apply_geometry():
+            return
         self._pending_focus_claim = True
         self.show()
         self.raise_()

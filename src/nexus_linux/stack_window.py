@@ -291,14 +291,22 @@ class StackWindow(QWidget):
         small/portrait secondary monitor. Centered rather than bottom-
         anchored: Stack is a compact vertical utility panel, not a
         full-width timeline, so a plain centered placement (clamped to the
-        target screen's available geometry) is the right fit here."""
+        target screen's available geometry) is the right fit here. Returns
+        False (leaving geometry/position untouched, whatever it last was)
+        if there's genuinely no screen -- KWin can transiently report zero
+        outputs (observed live on Erwin, likely a DPMS/screen-blank
+        recovery hiccup); calling .availableGeometry() on None would crash
+        instead of just not repositioning."""
         screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+        if screen is None:
+            return False
         avail = screen.availableGeometry()
         width = min(self.width(), avail.width())
         height = min(self.height(), avail.height())
         x = avail.x() + (avail.width() - width) // 2
         y = avail.y() + (avail.height() - height) // 2
         self.setGeometry(x, y, width, height)
+        return True
 
     def show_and_focus(self) -> None:
         self.refresh()

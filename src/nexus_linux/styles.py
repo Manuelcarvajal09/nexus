@@ -355,6 +355,12 @@ QPushButton#flat:hover {{
     background-color: {t.card_bg_hover};
 }}
 
+QPushButton#flat:checked {{
+    background-color: {t.accent_dim};
+    color: {t.accent};
+    font-weight: 600;
+}}
+
 QPushButton#toggleActive {{
     background-color: {t.accent_dim};
     border: 1px solid {t.accent};

@@ -83,12 +83,27 @@ class PinboardSidebar(QWidget):
         self._list.model().rowsMoved.connect(self._on_rows_moved)
         root.addWidget(self._list, stretch=1)
 
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(4)
         self._add_btn = QPushButton("+ Nuevo pinboard")
         self._add_btn.setObjectName("primary")
         self._add_btn.clicked.connect(self._on_create)
-        root.addWidget(self._add_btn)
+        actions_row.addWidget(self._add_btn, stretch=1)
 
-        self._hint = QLabel("Clic derecho en un pinboard\npara editar, mover o eliminar.")
+        # Rename/icon/reorder/delete used to live ONLY in the right-click
+        # menu -- undiscoverable if you never think to right-click a nav
+        # item. This button opens the exact same menu (_show_board_menu) for
+        # whichever pinboard is currently selected, so every action has a
+        # visible, mouse-discoverable path in addition to right-click.
+        self._edit_btn = QPushButton("⋮")
+        self._edit_btn.setObjectName("flat")
+        self._edit_btn.setFixedWidth(28)
+        self._edit_btn.setToolTip("Editar pinboard seleccionado")
+        self._edit_btn.clicked.connect(self._on_edit_button_clicked)
+        actions_row.addWidget(self._edit_btn)
+        root.addLayout(actions_row)
+
+        self._hint = QLabel("Clic derecho, o el botón ⋮,\npara editar, mover o eliminar.")
         self._hint.setObjectName("subtitle")
         self._hint.setWordWrap(True)
         root.addWidget(self._hint)
@@ -179,7 +194,18 @@ class PinboardSidebar(QWidget):
         row_id = list_item.data(Qt.ItemDataRole.UserRole)
         if row_id == HISTORY_ROW_ID:
             return
+        self._show_board_menu(row_id, self._list.mapToGlobal(pos))
 
+    def _on_edit_button_clicked(self) -> None:
+        current = self._list.currentItem()
+        if current is None:
+            return
+        row_id = current.data(Qt.ItemDataRole.UserRole)
+        if row_id == HISTORY_ROW_ID:
+            return
+        self._show_board_menu(row_id, self._edit_btn.mapToGlobal(self._edit_btn.rect().bottomLeft()))
+
+    def _show_board_menu(self, row_id: int, global_pos) -> None:
         menu = QMenu(self)
         rename_action = menu.addAction("Renombrar…")
         icon_action = menu.addAction("Cambiar ícono…")
@@ -188,7 +214,7 @@ class PinboardSidebar(QWidget):
         move_down_action = menu.addAction("Mover abajo")
         menu.addSeparator()
         delete_action = menu.addAction("Eliminar")
-        chosen = menu.exec(self._list.mapToGlobal(pos))
+        chosen = menu.exec(global_pos)
 
         if chosen == rename_action:
             board = self._storage.get_pinboard(row_id)
