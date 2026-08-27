@@ -19,7 +19,7 @@ QSS treatment instead of inventing new styling for emphasis."""
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QCursor, QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -284,8 +284,25 @@ class StackWindow(QWidget):
         )
         super().resizeEvent(event)
 
+    def _reposition_to_active_screen(self) -> None:
+        """Same monitor-selection policy as Timeline (cursor position, see
+        panel_geometry.py's docstring) -- Stack must appear on the screen
+        Manuel is actually working on, and never partially off-screen on a
+        small/portrait secondary monitor. Centered rather than bottom-
+        anchored: Stack is a compact vertical utility panel, not a
+        full-width timeline, so a plain centered placement (clamped to the
+        target screen's available geometry) is the right fit here."""
+        screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+        avail = screen.availableGeometry()
+        width = min(self.width(), avail.width())
+        height = min(self.height(), avail.height())
+        x = avail.x() + (avail.width() - width) // 2
+        y = avail.y() + (avail.height() - height) // 2
+        self.setGeometry(x, y, width, height)
+
     def show_and_focus(self) -> None:
         self.refresh()
+        self._reposition_to_active_screen()
         self.show()
         self.raise_()
         self.activateWindow()
