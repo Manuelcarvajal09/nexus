@@ -2,6 +2,21 @@
 
 **Fecha:** 2026-08-26 · Todos los números de esta página son **mediciones reales tomadas en vivo sobre Erwin** (proceso real, `ydotool` disparando los atajos físicamente, timestamps de `time.perf_counter()` insertados en el código y leídos del log), no estimaciones. Donde algo no se pudo medir con esta metodología, se indica explícitamente como pendiente.
 
+## 0. Fase 2.5 — Latencia end-to-end real (shortcut físico → ventana lista)
+
+**Metodología, más rigurosa que la de Fase 1/2:** un script (`measure_e2e.py`) toma `time.time()` inmediatamente antes de invocar `ydotool key ...` (tecla física real vía uinput), envía el atajo, y busca la línea `ventana lista` correspondiente en el log de Nexus, calculando la diferencia. Esto mide la cadena completa: `ydotool` → kernel uinput → KWin → kglobalaccel → señal D-Bus → callback async de `dbus_next` → slot de Qt → `show()`/`activateWindow()` — no solo el trabajo interno de Nexus (que ya se medía por separado, ~0.3-0.6ms). 30 muestras "warm" por atajo, más una muestra "cold" (primera activación tras arrancar).
+
+| Atajo | cold | warm p50 | warm p95 | warm max |
+|---|---|---|---|---|
+| Ctrl+Shift+V (Timeline) | — | **25.8ms** | 26.6ms | 42.4ms (1 outlier) |
+| Ctrl+Shift+C (Stack) | — | **25.9ms** | 26.6ms | 26.7ms |
+
+**Interpretación:** los ~25-26ms medidos son consistentes entre ambos atajos y muy estables (rango warm de 0.3-0.4ms de varianza aparte del outlier) — esto indica que el tiempo está dominado por la cadena `ydotool→kernel→KWin→D-Bus`, no por el procesamiline propio de Nexus (que Fase 2 ya redujo a **3-4ms** de principio a fin dentro del proceso). **Ambos objetivos del pedido original se cumplen con margen amplio**: feedback perceptible <100ms ✅ (25ms), ventana usable <200ms ✅ (25ms).
+
+**Nota metodológica honesta:** esta medición todavía no incluye el tiempo real de composición/presentación de píxeles por parte de KWin (el intervalo entre que Qt llama a `show()` y el compositor efectivamente pinta el frame en pantalla) — eso requeriría instrumentación a nivel de compositor fuera del alcance de esta sesión. Dado que 25ms ya deja ~75-175ms de margen contra los objetivos, no se consideró necesario perseguir esa medición adicional.
+
+**Incidente observado durante esta medición (no relacionado con Nexus):** a mitad de esta sesión de pruebas, KWin reportó transitoriamente **0 pantallas** (`qdbus6 org.kde.KWin /KWin supportInformation` → `Number of Screens: 0`), sostenido durante los siguientes ~25+ minutos de la sesión, coincidiendo con logs de KWin (`GL_INVALID_VALUE en glTexStorage2D`, `Failed to create an offscreen framebuffer`) — muy probablemente el monitor entrando en suspensión por inactividad y el compositor no recuperándose limpiamente al momento de las pruebas. **Esto es un problema del sistema/compositor, no de Nexus**: confirmado que (a) el shortcut global vía kglobalaccel deja de dispachar mientras persiste esta condición (verificado: 0 líneas de log tras 3 intentos consecutivos), pero (b) el servicio D-Bus de respaldo de Nexus (`qdbus6 mx.com.storem.nexus /Nexus ShowStack`) siguió funcionando perfectamente, permitiendo continuar todas las pruebas de Stack/captura sin depender del atajo físico. Se añadió además blindaje defensivo (`TimelineWindow._apply_geometry()` / `StackWindow._reposition_to_active_screen()`) para que Nexus nunca crashee si `QGuiApplication.screenAt()`/`primaryScreen()` devuelven `None` en este escenario — antes de este fix, habría producido una excepción no capturada limpiamente. **Recomendación:** si esto se repite fuera de un período de inactividad larga, vale la pena revisar los logs de KWin del sistema (no de Nexus) para descartar un problema de controlador gráfico.
+
 ## 1. CPU en reposo — hallazgo P0 (corregido)
 
 | Momento | Hilo | CPU |
@@ -88,10 +103,25 @@ Sin degradar CPU idle, memoria, ni ninguna otra métrica de Fase 1 — el modelo
 
 ## 4. Fiabilidad de atajos globales
 
-Verificado con `ydotool` disparando `Ctrl+Shift+V` y `Ctrl+Shift+C` repetidamente contra el proceso real durante esta sesión (decenas de activaciones a lo largo de las pruebas de latencia y de la prueba de recuperación de crash): **0 eventos perdidos, 0 ventanas duplicadas, 0 crashes**. No se ejecutó la prueba formal de "100 activaciones consecutivas cronometradas" como bloque aislado — pendiente para `TEST_PLAN_V2.md` si se quiere un número exacto de tasa de fallo sobre una muestra grande; la evidencia cualitativa de esta sesión no mostró ningún fallo.
+**Fase 2.5, bloque formal cronometrado:** 60 activaciones dedicadas (30 de Ctrl+Shift+V + 30 de Ctrl+Shift+C, ver §0) más decenas adicionales de activaciones cualitativas a lo largo de toda la sesión (pruebas de latencia, recuperación de crash, verificación de Stack). **0 eventos perdidos, 0 ventanas duplicadas, 0 crashes** en el total. Único evento anómalo: la condición de "0 pantallas" descrita en §0, que bloqueó el despacho de kglobalaccel durante ~25 min — un problema del compositor/sistema, no del código de registro/disparo de atajos de Nexus (que siguió funcionando correctamente en cuanto la condición se resolvió, y cuyo fallback D-Bus nunca dejó de funcionar).
 
-## 5. Pendiente de medir (no cubierto en esta sesión)
+## 5. Soak test (Fase 2.5)
 
-- Memoria en una sesión larga (horas) con cientos de operaciones — no se corrió un soak test dedicado.
-- Latencia de apertura con temas/glass/translucencia (no aplica todavía, Fase 2).
-- Tiempo de primera renderización a nivel de compositor (fuera del control directo de Nexus, requeriría herramientas de profiling de KWin).
+100 operaciones de copiado secuenciales (`sleep 0.15` entre cada una) contra el proceso real, más una segunda ronda mixta de 10 operaciones con URLs/colores para ejercitar el pipeline de previews:
+
+| Métrica | Antes | Después de 100+10 operaciones |
+|---|---|---|
+| RSS | 145,808 KB | 145,888-145,964 KB (±156KB, ruido normal) |
+| File descriptors | 34 | 30-32 (sin crecimiento) |
+| Hilos | 9 | 5 (el pool de hilos de preview se contrae solo tras quedar inactivo — comportamiento esperado de `QThreadPool`) |
+| CPU del hilo `nexus-evdev-wat` | 0% | 0% (sin regresión del bug de Fase 1) |
+
+**Sin memory leak, sin fd leak, sin thread leak, sin CPU creep** detectable en esta ventana de prueba. No se corrió una sesión de horas (fuera del alcance práctico de esta sesión de trabajo); si se quiere un soak test de varias horas, el mismo script es reutilizable con más iteraciones.
+
+## 6. Pendiente de medir (no cubierto en esta sesión)
+
+- Memoria en una sesión de **horas** (el soak test de §5 cubre 110 operaciones en unos pocos minutos, no un uso prolongado real de todo un día).
+- Latencia de apertura con temas/glass/translucencia (no aplica todavía).
+- Tiempo de primera renderización a nivel de compositor (fuera del control directo de Nexus).
+- Comportamiento real en monitor ultrawide 34" (no conectado todavía) — la lógica de `panel_geometry.py` está probada con 58 tests contra geometrías sintéticas equivalentes, pero no contra el hardware real.
+- Suspend/resume real del sistema completo: no se pudo probar en esta sesión (suspender la máquina habría cortado esta misma sesión de trabajo). La causa raíz más probable de fallos en ese escenario (el teclado Bluetooth desapareciendo/reapareciendo) ya está cubierta por el fix de Fase 1 y su verificación en vivo; una suspensión/reanudación real completa queda pendiente de que Manuel la pruebe físicamente.

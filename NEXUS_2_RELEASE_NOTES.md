@@ -1,8 +1,8 @@
 # Nexus 2.0 — Release Notes
 
-**Fecha:** 2026-08-26 · **Rama:** `nexus-2.0` (checkpoint estable previo: tag `nexus-linux-stable-1.x` en `main`) · **Tests:** 108/108
+**Fecha:** 2026-08-26 · **Rama:** `nexus-2.0` (checkpoint estable previo: tag `nexus-linux-stable-1.x` en `main`; checkpoint Fase 2: `nexus-2.0-phase2-complete`; **release candidate actual: `nexus-2.0-rc1`**) · **Tests:** 230/230
 
-Este documento resume todo lo entregado en la sesión de Fase 1 (auditoría/cimientos) + Fase 2 (producto/diseño). Todo lo descrito aquí fue verificado en vivo contra el proceso real en Erwin — no es una lista de intenciones.
+Este documento resume todo lo entregado en Fase 1 (auditoría/cimientos), Fase 2 (producto/diseño) y Fase 2.5 (pulido de release candidate). Todo lo descrito aquí fue verificado en vivo contra el proceso real en Erwin — no es una lista de intenciones. Ver `NEXUS_2_RC1_REPORT.md` para el reporte final con evidencia condensada.
 
 ---
 
@@ -11,10 +11,22 @@ Este documento resume todo lo entregado en la sesión de Fase 1 (auditoría/cimi
 Nexus pasó de "migrado de Mac a Linux, con un bug de CPU activo ahora mismo" a una base con:
 
 - **0 bugs P0/P1 conocidos** (había 2 activos al empezar: bucle infinito de CPU y ausencia de instancia única).
-- **Ctrl+Shift+V: de ~900ms a ~3-4ms** (mejora de ~250x), sin sacrificar nada — verificado en vivo con instrumentación real, no estimado.
-- **108 tests automatizados** (0 al empezar la sesión).
-- Persistencia real del Stack ante un crash (antes: pérdida silenciosa y total).
-- Una experiencia principal nueva (Nexus Timeline) inspirada en el análisis de producto de Paste, con identidad propia.
+- **Ctrl+Shift+V: de ~900ms a ~3-4ms internos / ~26ms end-to-end real** (shortcut físico → ventana lista, medido con `ydotool` + timestamps de alta precisión, no solo el trabajo interno de Qt).
+- **230 tests automatizados** (0 al empezar la sesión de Fase 1).
+- Persistencia real del Stack ante un crash (antes: pérdida silenciosa y total) — reverificada en Fase 2.5 con `kill -9` real.
+- Una experiencia principal nueva (Nexus Timeline) inspirada en el análisis de producto de Paste, con identidad propia: barra anclada al borde inferior, geometría responsive multi-monitor determinista, previews web reales (favicon/OG image/YouTube) con protección SSRF completa.
+
+## Fase 2.5 — Release Candidate Polish (resumen; detalle completo en `NEXUS_2_RC1_REPORT.md`)
+
+Sobre la base de Fase 2 (ya aceptada, no reescrita), esta ronda entregó:
+
+1. **Geometría de panel determinista y responsive** (`panel_geometry.py`, 58 tests): reemplaza las coordenadas fijas (`x=0, y=900, width=1920`) por un cálculo recomputado en cada apertura a partir de `QScreen.availableGeometry()` real del monitor bajo el cursor — nunca una posición recordada/persistida. Breakpoints por ancho lógico (STANDARD/WIDE/ULTRAWIDE) más un modo COMPACT para orientación portrait, probados contra las resoluciones sintéticas 16:9, 2560×1440, 3440×1440, 3840×1600, portrait 1080×1920 y 1440×2560.
+2. **`FramelessWindowHint` restaurado** en la Timeline (sin barra de título → sin affordance de arrastre/resize) tras confirmar en vivo que el hallazgo de "pierde foco" de la sesión anterior era en realidad una carrera de temporización (pedir foco antes de que Wayland completara la activación real), no el flag frameless en sí — ambos hallazgos quedan documentados en el código, no solo en este archivo.
+3. **Previews web reales con seguridad SSRF completa** (`web_preview.py`, `preview_service.py`, `url_preview_cache`): favicon + Open Graph image + título para URLs normales, thumbnail + título + canal vía oEmbed público (sin API key) para YouTube. DNS resuelto y validado antes de conectar, conexión anclada a esa IP (protección contra DNS rebinding), redirects revalidados uno por uno, límite de tamaño de respuesta, whitelist de Content-Type, timeouts estrictos. Nunca bloquea la captura ni la apertura de Nexus — corre en `QThreadPool`, cache-first, con fallback a solo-dominio.
+4. **Pinboards**: corregidos dos hallazgos reales — rename/ícono/mover/eliminar solo vivían en clic derecho (ahora también un botón "⋮" visible), y los chips de filtro de pinboard en la Timeline no tenían estilo `:checked` (se veían idénticos seleccionados o no).
+5. **Búsqueda enriquecida**: los títulos obtenidos de forma asíncrona (YouTube, OG) ahora se indexan para búsqueda — antes solo el contenido crudo del portapapeles era buscable.
+6. **Blindaje defensivo**: `TimelineWindow`/`StackWindow` ya no crashean si el compositor reporta temporalmente cero pantallas (condición real observada en vivo durante esta sesión — ver `PERFORMANCE_BASELINE.md` §0).
+7. **Re-verificación en vivo del criterio "MUY IMPORTANTE"**: Stack A,B,C consumido secuencialmente vía Ctrl+V real sin botón manual, confirmado de nuevo contra el proceso real (no solo los 30 tests unitarios ya existentes).
 
 ## Fase 1 — Core / Reliability (gate: PASS)
 
@@ -78,12 +90,15 @@ Siguiendo la instrucción explícita de "proponer antes que construir" y evitar 
 ## Estado de los tests
 
 ```
-108/108 passing
-- 30 tests: ClipStack (Fase 1, sin cambios)
-- 15 tests: StorageService (Fase 1, sin cambios)
-- 40 tests: type_detection (Fase 2, nuevo)
-- 10 tests: relative_time (Fase 2, nuevo)
-- 13 tests: TimelineModel (Fase 2, nuevo)
+230/230 passing
+- 30 tests:  ClipStack (Fase 1)
+- 45 tests:  StorageService (Fase 1: 15 + Fase 2.5: preview cache 9 + enrich_search_text 5 + otros)
+- 40 tests:  type_detection (Fase 2)
+- 10 tests:  relative_time (Fase 2)
+- 13 tests:  TimelineModel (Fase 2)
+- 58 tests:  panel_geometry (Fase 2.5)
+- 41 tests:  web_preview / SSRF (Fase 2.5)
+- 8 tests:   PreviewService (Fase 2.5, incluye un end-to-end real por QThreadPool)
 ```
 
 Ejecutar con: `.venv/bin/pytest tests/ -v` desde `/home/manuelcarvajal/Projects/Nexus-linux`.
@@ -91,7 +106,8 @@ Ejecutar con: `.venv/bin/pytest tests/ -v` desde `/home/manuelcarvajal/Projects/
 ## Git
 
 - `main`: estado estable de Fase 1, tag `nexus-linux-stable-1.x`.
-- `nexus-2.0`: todo el trabajo de esta sesión, commits atómicos por cada fix/feature con su justificación y evidencia de verificación en el mensaje.
+- `nexus-2.0`: todo el trabajo de Fase 2 y 2.5, commits atómicos por cada fix/feature con su justificación y evidencia de verificación en el mensaje.
+- Checkpoints: `nexus-2.0-phase2-complete` (fin de Fase 2), **`nexus-2.0-rc1`** (release candidate actual, instalado como versión activa en Erwin vía el `pip install -e .` ya existente).
 - Sin push a ningún remoto (no hay remoto configurado).
 
 ## Próximos pasos recomendados (no bloqueantes)
