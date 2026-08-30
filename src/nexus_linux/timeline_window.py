@@ -27,6 +27,7 @@ swallowed. Ctrl+1..9 is Quick Paste, positional over whatever's currently
 displayed, independent of focus location."""
 
 import logging
+import sys
 
 from PySide6.QtCore import QEvent, QRect, Qt, QTimer
 from PySide6.QtGui import QCursor, QGuiApplication, QKeySequence, QShortcut
@@ -104,6 +105,7 @@ class TimelineWindow(QWidget):
         self._current_pinboard_id: int | None = ALL_PINBOARDS_ID
         self._pinboard_buttons: dict = {}
         self._pending_focus_claim = False
+        self._persistent_when_inactive = sys.platform == "win32"
         self._dismiss_timer = QTimer(self)
         self._dismiss_timer.setSingleShot(True)
         self._dismiss_timer.setInterval(DISMISS_DEBOUNCE_MS)
@@ -126,8 +128,8 @@ class TimelineWindow(QWidget):
         self._expanded = False
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(10, 4, 10, 4)
-        root.setSpacing(4)
+        root.setContentsMargins(16, 14, 16, 14)
+        root.setSpacing(10)
 
         # Everything above the card row lives in one container so its real
         # rendered height can be MEASURED (self._chrome.sizeHint().height())
@@ -139,7 +141,7 @@ class TimelineWindow(QWidget):
         self._chrome = QWidget()
         chrome_layout = QVBoxLayout(self._chrome)
         chrome_layout.setContentsMargins(0, 0, 0, 0)
-        chrome_layout.setSpacing(3)
+        chrome_layout.setSpacing(9)
 
         # Single merged header row (compact wordmark + pinboard chips +
         # counter + Expanded View toggle) -- one row instead of the two
@@ -204,6 +206,7 @@ class TimelineWindow(QWidget):
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setFixedHeight(CARD_HEIGHT + 16)
         self._list.activated.connect(self._on_activated)
+        self._list.doubleClicked.connect(self._on_activated)
         self._list.installEventFilter(self)
         root.addWidget(self._list)
 
@@ -319,7 +322,7 @@ class TimelineWindow(QWidget):
                     self._pending_focus_claim = False
                     self._search.setFocus()
                     self._search.selectAll()
-            elif not self._pending_focus_claim and self.isVisible():
+            elif not self._persistent_when_inactive and not self._pending_focus_claim and self.isVisible():
                 # Click-outside-to-dismiss / alt-tab-away-to-dismiss: once
                 # Nexus has genuinely become active this session (not
                 # _pending_focus_claim), losing activation means the user
@@ -336,7 +339,7 @@ class TimelineWindow(QWidget):
         super().changeEvent(event)
 
     def _dismiss_if_still_inactive(self) -> None:
-        if not self.isActiveWindow() and self.isVisible():
+        if not self._persistent_when_inactive and not self.isActiveWindow() and self.isVisible():
             log.info("click-outside-dismiss: perdí activación, ocultando")
             self.fade_hide()
 
@@ -487,6 +490,12 @@ class TimelineWindow(QWidget):
         self.layout().invalidate()
         self.layout().activate()
         self.setGeometry(QRect(geo.x, geo.y, geo.width, geo.height))
+        # Qt may enlarge a top-level widget to honour a DPI-scaled minimum
+        # size after setGeometry(). Clamp the *actual* resulting height so
+        # no card is ever rendered below Windows' usable work area.
+        if sys.platform == "win32":
+            max_y = avail.y() + avail.height() - self.height() - 24
+            self.move(self.x(), max(avail.y() + 14, min(self.y(), max_y)))
         return True
 
     def show_and_focus(self) -> None:
@@ -518,6 +527,9 @@ class TimelineWindow(QWidget):
             self._pending_focus_claim = False
             self._search.setFocus()
             self._search.selectAll()
+        # Native Windows font/DPI metrics settle only after the first show;
+        # recompute then so the complete card row remains above the taskbar.
+        QTimer.singleShot(0, self._apply_geometry)
         QTimer.singleShot(0, self.refresh)
 
     def fade_hide(self) -> None:

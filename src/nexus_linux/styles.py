@@ -187,7 +187,8 @@ QWidget {{
 }}
 
 QWidget#panelRoot {{
-    background-color: {t.bg};
+    background-color: {t.bg_elevated};
+    border: 1px solid {t.card_border_hover};
     border-radius: {t.radius_panel}px;
 }}
 
@@ -444,8 +445,8 @@ QLabel#badgeCompact {{
 }}
 
 QLineEdit#quickSearch {{
-    padding: 2px 9px;
-    font-size: 12px;
+    padding: 10px 14px;
+    font-size: 13px;
 }}
 
 QPushButton#pinboardChipCompact {{
@@ -453,8 +454,8 @@ QPushButton#pinboardChipCompact {{
     border: none;
     color: {t.text_secondary};
     font-weight: 500;
-    font-size: 10.5px;
-    padding: 2px 8px;
+    font-size: 11px;
+    padding: 5px 10px;
 }}
 
 QPushButton#pinboardChipCompact:hover {{
@@ -473,9 +474,9 @@ QPushButton#expandToggle {{
     border: 1px solid {t.card_border};
     border-radius: {t.radius_chip}px;
     color: {t.text_secondary};
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
-    padding: 2px 7px;
+    padding: 5px 10px;
 }}
 
 QPushButton#expandToggle:hover {{

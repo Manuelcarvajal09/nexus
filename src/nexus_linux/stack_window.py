@@ -17,6 +17,7 @@ with set_selected(True): that reuses the existing accent-bordered "selected"
 QSS treatment instead of inventing new styling for emphasis."""
 
 from pathlib import Path
+import sys
 
 from PySide6.QtCore import QEvent, QSize, QTimer, Qt
 from PySide6.QtGui import QCursor, QGuiApplication, QPixmap
@@ -48,6 +49,7 @@ class StackWindow(QWidget):
         super().__init__(parent)
         self._stack = clip_stack
         self._pending_activation = False
+        self._persistent_when_inactive = sys.platform == "win32"
         self._dismiss_timer = QTimer(self)
         self._dismiss_timer.setSingleShot(True)
         self._dismiss_timer.setInterval(DISMISS_DEBOUNCE_MS)
@@ -172,6 +174,7 @@ class StackWindow(QWidget):
             next_row.customContextMenuRequested.connect(
                 lambda pos, item_id=head.id: self._on_next_context_menu(next_row, item_id, pos)
             )
+            next_row.activated.connect(lambda item_id=head.id: self._paste_item(item_id))
             self._next_container.addWidget(next_row)
             self._next_widget = next_row
 
@@ -184,6 +187,7 @@ class StackWindow(QWidget):
             list_item.setSizeHint(QSize(0, row.sizeHint().height()))
             self._list.addItem(list_item)
             self._list.setItemWidget(list_item, row)
+            row.activated.connect(lambda item_id=item.id: self._paste_item(item_id))
 
         self._subtitle.setText(f"{count} elemento{'s' if count != 1 else ''} en total" if count else "Vacío")
 
@@ -256,6 +260,20 @@ class StackWindow(QWidget):
     def _do_advance(self) -> None:
         self._stack.paste_next_and_advance()
         self.refresh()
+
+    def _paste_item(self, item_id: int) -> None:
+        item = next((candidate for candidate in self._stack.items() if candidate.id == item_id), None)
+        if item is None or not self._stack.paste_service.write_to_clipboard(item):
+            return
+        self.fade_hide()
+        QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, lambda: self._finish_item_paste(item_id))
+
+    def _finish_item_paste(self, item_id: int) -> None:
+        if self._stack.paste_service.synthetic_paste():
+            self._stack._items = [item for item in self._stack.items() if item.id != item_id]
+            self._stack._persist()
+            self._stack.arm_next()
+            self.refresh()
 
     def _selected_item_id(self):
         current = self._list.currentItem()
@@ -348,7 +366,7 @@ class StackWindow(QWidget):
             if self.isActiveWindow():
                 self._pending_activation = False
                 self._dismiss_timer.stop()
-            elif not self._pending_activation and self.isVisible():
+            elif not self._persistent_when_inactive and not self._pending_activation and self.isVisible():
                 # Click-outside-to-dismiss, debounced -- same philosophy and
                 # same reasoning as TimelineWindow.changeEvent()/
                 # DISMISS_DEBOUNCE_MS (confirmed live: an undebounced version
@@ -359,7 +377,7 @@ class StackWindow(QWidget):
         super().changeEvent(event)
 
     def _dismiss_if_still_inactive(self) -> None:
-        if not self.isActiveWindow() and self.isVisible():
+        if not self._persistent_when_inactive and not self.isActiveWindow() and self.isVisible():
             self.fade_hide()
 
     def fade_hide(self) -> None:

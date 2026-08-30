@@ -224,12 +224,11 @@ class TestClipboardWriteFailureResilience:
         stack.add(a)
         stack.add(b)
 
-        # Even though ydotool "failed" (e.g. ydotoold not running), the item
-        # was still copied to the clipboard -- the user can paste it by hand,
-        # so the Stack must still advance rather than getting stuck on A.
+        # On Windows we only consume after SendInput reports that the paste
+        # was actually delivered; otherwise the remaining stack is preserved.
         returned = stack.paste_next_and_advance()
-        assert returned.id == a.id
-        assert [i.id for i in stack.items()] == [b.id]
+        assert returned is None
+        assert [i.id for i in stack.items()] == [a.id, b.id]
 
 
 class TestCrashRecovery:

@@ -64,6 +64,8 @@ def main():
     tray = QSystemTrayIcon(QIcon(str(RESOURCES_DIR / "nexus-tray.png"))); tray.setToolTip("Nexus")
     menu = QMenu(); menu.addAction("Abrir Nexus", show_panel); menu.addAction("Nexus Stack", show_stack); menu.addAction("Biblioteca", library.show_and_focus); menu.addSeparator(); menu.addAction("Salir", app.quit); tray.setContextMenu(menu); tray.show()
     app.aboutToQuit.connect(lambda: (unregister_hotkey(hwnd, PANEL_HOTKEY), unregister_hotkey(hwnd, STACK_HOTKEY)))
+    if os.environ.get("NEXUS_OPEN_ON_START") == "1":
+        QTimer.singleShot(250, show_panel)
     return app.exec()
 
 if __name__ == "__main__": raise SystemExit(main())

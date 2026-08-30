@@ -136,7 +136,8 @@ class ClipStack:
         item = self.arm_next()
         if item is None:
             return None
-        self.paste_service.synthetic_paste()
+        if not self.paste_service.synthetic_paste():
+            return None
         self.consume_next()
         self.arm_next()  # ready the new head immediately, no extra step needed
         return item

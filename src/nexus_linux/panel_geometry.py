@@ -152,8 +152,14 @@ def calculate_panel_geometry(
         panel_height = max(card_height + chrome_height, panel_height)
         panel_height = min(panel_height, round(available_height * _EXPANDED_HEIGHT_CEILING))
     else:
-        panel_height = card_height + chrome_height
-        panel_height = max(150, min(panel_height, round(available_height * _QUICK_SHELF_HEIGHT_CEILING)))
+        # The list viewport includes a small card gutter in addition to the
+        # delegate's card height; reserving it prevents Qt from growing the
+        # top-level window below the physical screen edge.
+        panel_height = card_height + 16 + chrome_height
+        # A minimum breathable surface prevents the native Qt layout from
+        # clipping the card row when Windows font scaling enlarges chrome.
+        panel_height = max(340, panel_height)
+        panel_height = max(1, min(panel_height, round(available_height * 0.36)))
 
     # Content-driven width: start from how many cards we actually want
     # visible, not from a raw fraction of the screen -- see
@@ -162,13 +168,15 @@ def calculate_panel_geometry(
     # was never the ask, more visible rows was.
     target_cards = _TARGET_VISIBLE_CARDS[mode]
     content_width = target_cards * CARD_SLOT_WIDTH + 2 * margin
+    if mode is ResponsiveMode.STANDARD:
+        content_width = min(950, max(760, round(available_width * 0.47)))
     width = min(content_width, round(available_width * _WIDTH_CEILING_FRACTION))
     abs_max = _ABSOLUTE_MAX_SHELF_WIDTH.get(mode)
     if abs_max is not None:
         width = min(width, abs_max)
     width = max(1, min(width, available_width))
     x = available_x + (available_width - width) // 2
-    y = available_y + available_height - panel_height
+    y = available_y + available_height - panel_height - min(28, max(14, round(available_height * 0.02)))
 
     cols = max(1, width // CARD_SLOT_WIDTH)
     rows_hint = 1

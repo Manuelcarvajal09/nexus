@@ -2,7 +2,7 @@
 MainWindow's history list and StackWindow's collection list so they share
 one visual language instead of each hand-rolling QListWidgetItem text."""
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
@@ -13,6 +13,7 @@ BADGE_SIZE = 34
 
 
 class ClipRowWidget(QWidget):
+    activated = Signal()
     def __init__(self, item, position: int | None = None, parent=None):
         super().__init__(parent)
         self.setObjectName("clipRow")
@@ -130,3 +131,7 @@ class ClipRowWidget(QWidget):
         self._repolish()
         self._animate_shadow(False)
         super().leaveEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        self.activated.emit()
+        event.accept()
