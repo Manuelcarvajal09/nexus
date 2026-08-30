@@ -17,6 +17,7 @@ from .windows_clipboard import WindowsClipboardMonitor
 from .windows_paste import WindowsPasteService
 from .windows_platform import WM_HOTKEY, acquire_single_instance_mutex, register_hotkey, release_handle, unregister_hotkey
 from .windows_settings import load_settings, vk_for
+from .windows_keyboard import WindowsPasteWatcher
 
 PANEL_HOTKEY, STACK_HOTKEY = 1, 2
 RESOURCES_DIR = Path(__file__).resolve().parent.parent.parent / "resources"
@@ -39,10 +40,16 @@ def main():
     app = QApplication(sys.argv); app.setApplicationName("Nexus")
     app.setQuitOnLastWindowClosed(False); app.setFont(QFont("Segoe UI", 10)); app.setStyleSheet(styles.qss())
     settings = load_settings()
-    storage = StorageService(); monitor = WindowsClipboardMonitor(storage)
+    storage = StorageService(); monitor = WindowsClipboardMonitor(storage, settings)
     paste = WindowsPasteService(on_write=monitor.suppress_next_change)
     preview = PreviewService(storage, parent=app); library = MainWindow(storage, paste); timeline = TimelineWindow(storage, paste, preview)
     stack = ClipStack(storage, paste); stack.load_persisted(); stack_window = StackWindow(stack)
+    paste_watcher = WindowsPasteWatcher(app)
+    def consume_real_stack_paste():
+        if stack_window.is_collecting() and stack_window.has_pending_items():
+            QTimer.singleShot(80, lambda: (stack.consume_after_real_paste(), stack_window.refresh()))
+    paste_watcher.paste_detected.connect(consume_real_stack_paste)
+    paste_watcher.start()
     def captured(item):
         detected = type_detection.detect(item.kind, item.text_content)
         if detected in ("url", "youtube"): preview.request(item.id, item.text_content, is_youtube=detected == "youtube")
@@ -52,10 +59,14 @@ def main():
     monitor.captured.connect(captured)
     def show_panel():
         if timeline.isVisible(): timeline.fade_hide()
-        else: paste.remember_target(); timeline.show_and_focus()
+        else:
+            if stack_window.isVisible(): stack_window.fade_hide()
+            paste.remember_target(); timeline.show_and_focus()
     def show_stack():
         if stack_window.isVisible(): stack_window.fade_hide()
-        else: paste.remember_target(); stack_window.start_collecting(); stack_window.show_and_focus()
+        else:
+            if timeline.isVisible(): timeline.fade_hide()
+            paste.remember_target(); stack_window.start_collecting(); stack_window.show_and_focus()
     def hotkey(identifier):
         (show_panel if identifier == PANEL_HOTKEY else show_stack)()
     filter_ = HotkeyFilter(hotkey); app.installNativeEventFilter(filter_)
@@ -68,7 +79,7 @@ def main():
         raise RuntimeError("No se pudieron registrar los atajos globales configurados")
     tray = QSystemTrayIcon(QIcon(str(RESOURCES_DIR / "nexus-tray.png"))); tray.setToolTip("Nexus")
     menu = QMenu(); menu.addAction("Abrir Nexus", show_panel); menu.addAction("Nexus Stack", show_stack); menu.addAction("Biblioteca", library.show_and_focus); menu.addSeparator(); menu.addAction("Salir", app.quit); tray.setContextMenu(menu); tray.show()
-    app.aboutToQuit.connect(lambda: (unregister_hotkey(hwnd, PANEL_HOTKEY), unregister_hotkey(hwnd, STACK_HOTKEY), release_handle(mutex)))
+    app.aboutToQuit.connect(lambda: (paste_watcher.stop(), unregister_hotkey(hwnd, PANEL_HOTKEY), unregister_hotkey(hwnd, STACK_HOTKEY), release_handle(mutex)))
     if os.environ.get("NEXUS_OPEN_ON_START") == "1":
         QTimer.singleShot(250, show_panel)
     return app.exec()

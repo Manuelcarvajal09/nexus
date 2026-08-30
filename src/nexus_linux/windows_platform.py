@@ -1,6 +1,7 @@
 """Focused Win32 primitives used by Nexus; no polling and no shell tools."""
 from __future__ import annotations
 import ctypes
+import os
 from ctypes import wintypes
 from dataclasses import dataclass
 
@@ -35,9 +36,39 @@ kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWS
 kernel32.CreateMutexW.restype = wintypes.HANDLE
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 kernel32.CloseHandle.restype = wintypes.BOOL
+kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+user32.RegisterClipboardFormatW.argtypes = [wintypes.LPCWSTR]
+user32.RegisterClipboardFormatW.restype = wintypes.UINT
+user32.IsClipboardFormatAvailable.argtypes = [wintypes.UINT]
 
 def foreground_window() -> int:
     return int(user32.GetForegroundWindow() or 0)
+
+def window_process_id(hwnd: int) -> int:
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return int(pid.value)
+
+def foreground_process_name() -> str:
+    pid = window_process_id(foreground_window())
+    if not pid: return ""
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle: return ""
+    try:
+        size = wintypes.DWORD(32768); buffer = ctypes.create_unicode_buffer(size.value)
+        if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+            return os.path.basename(buffer.value)
+        return ""
+    finally:
+        kernel32.CloseHandle(handle)
+
+def clipboard_requests_exclusion() -> bool:
+    for name in ("ExcludeClipboardContentFromMonitorProcessing",):
+        fmt = user32.RegisterClipboardFormatW(name)
+        if fmt and user32.IsClipboardFormatAvailable(fmt): return True
+    return False
 
 def capture_focus_target() -> FocusTarget | None:
     hwnd = foreground_window()

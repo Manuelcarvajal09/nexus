@@ -37,6 +37,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListView,
+    QMenu,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -80,7 +82,7 @@ class _TimelineListView(QListView):
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             index = self.currentIndex()
             if index.isValid():
-                self._on_activate(index)
+                self._on_activate(index, plain_text=bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
             return
         text = event.text()
         no_relevant_modifier = not (
@@ -213,6 +215,8 @@ class TimelineWindow(QWidget):
         self._list.setFixedHeight(CARD_HEIGHT + 16)
         self._list.doubleClicked.connect(self._on_activated)
         self._list.installEventFilter(self)
+        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._list.customContextMenuRequested.connect(self._show_item_menu)
         root.addWidget(self._list)
 
         self._empty_label = QLabel()
@@ -229,6 +233,8 @@ class TimelineWindow(QWidget):
         prev_board.activated.connect(lambda: self._cycle_pinboard(-1))
         next_board = QShortcut(QKeySequence("Ctrl+Right"), self)
         next_board.activated.connect(lambda: self._cycle_pinboard(1))
+        focus_search = QShortcut(QKeySequence("Ctrl+F"), self)
+        focus_search.activated.connect(lambda: (self._search.setFocus(), self._search.selectAll()))
 
         self.refresh()
 
@@ -246,7 +252,7 @@ class TimelineWindow(QWidget):
         if not self._list.currentIndex().isValid():
             self._list.setCurrentIndex(self._model.index(0, 0))
 
-    def _select_and_paste(self, item) -> None:
+    def _select_and_paste(self, item, plain_text: bool = False) -> None:
         """Write -> hide -> (deferred) synthesize, never the reverse.
         Synthesizing while Nexus is still the active window sends the
         Ctrl+V into Nexus itself (its own search field, typically) instead
@@ -257,17 +263,50 @@ class TimelineWindow(QWidget):
         touch window focus at all."""
         log.info("select_and_paste: item #%s", item.id)
         if hasattr(self._paste, "paste_item"):
-            self._paste.paste_item(item, self)
+            self._paste.paste_item(item, self, plain_text=plain_text)
         else:
             self._paste.write_to_clipboard(item)
             self.fade_hide()
             QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, self._paste.synthetic_paste)
 
-    def _on_activated(self, index) -> None:
+    def _on_activated(self, index, plain_text: bool = False) -> None:
         item = self._model.item_at(index.row())
         if item is None:
             return
-        self._select_and_paste(item)
+        self._select_and_paste(item, plain_text)
+
+    def _show_item_menu(self, pos) -> None:
+        index = self._list.indexAt(pos)
+        item = self._model.item_at(index.row()) if index.isValid() else None
+        if item is None:
+            return
+        menu = QMenu(self)
+        paste_action = menu.addAction("Pegar")
+        plain_action = menu.addAction("Pegar como texto plano")
+        copy_action = menu.addAction("Copiar nuevamente")
+        pin_action = menu.addAction("Fijar/Desfijar")
+        details_action = menu.addAction("Detalles")
+        menu.addSeparator()
+        delete_action = menu.addAction("Eliminar")
+        chosen = menu.exec(self._list.viewport().mapToGlobal(pos))
+        if chosen == paste_action:
+            self._select_and_paste(item)
+        elif chosen == plain_action:
+            self._select_and_paste(item, True)
+        elif chosen == copy_action:
+            self._paste.write_to_clipboard(item)
+        elif chosen == pin_action:
+            boards = self._storage.list_pinboards()
+            if boards and boards[0].id in item.pinboard_ids:
+                self._storage.remove_from_pinboard(item.id, boards[0].id)
+            elif boards:
+                self._storage.add_to_pinboard(item.id, boards[0].id)
+            self.refresh()
+        elif chosen == details_action:
+            QMessageBox.information(self, "Detalles", f"Tipo: {item.kind}\nOrigen: {item.source_app or 'desconocido'}\nID local: {item.id}")
+        elif chosen == delete_action:
+            self._storage.delete(item.id)
+            self.refresh()
 
     def _quick_paste(self, n: int) -> None:
         item = self._model.item_at(n - 1)
@@ -504,7 +543,7 @@ class TimelineWindow(QWidget):
         if sys.platform == "win32":
             # Keep a visual breathing zone above the taskbar; this also
             # accommodates Windows' scaled compositor shadow extents.
-            max_y = avail.y() + avail.height() - self.height() - 110
+            max_y = avail.y() + avail.height() - self.height() - 190
             self.move(self.x(), max(avail.y() + 14, min(self.y(), max_y)))
         return True
 

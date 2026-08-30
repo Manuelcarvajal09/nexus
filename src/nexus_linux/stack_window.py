@@ -57,13 +57,16 @@ class StackWindow(QWidget):
         self._dismiss_timer.timeout.connect(self._dismiss_if_still_inactive)
 
         self.setWindowTitle("Nexus Stack")
-        self.resize(320, 500)
-        self.setMinimumWidth(300)
+        self.resize(390, 560)
+        self.setMinimumWidth(360)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setObjectName("panelRoot")
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(12)
 
         header = QHBoxLayout()
         header.setSpacing(9)
