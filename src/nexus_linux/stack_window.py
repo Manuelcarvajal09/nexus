@@ -57,8 +57,10 @@ class StackWindow(QWidget):
         self._dismiss_timer.timeout.connect(self._dismiss_if_still_inactive)
 
         self.setWindowTitle("Nexus Stack")
-        self.resize(390, 560)
-        self.setMinimumWidth(360)
+        # This remains a compact utility window, while providing enough room
+        # for legible row metadata and controls at Erwin's Windows scaling.
+        self.resize(500, 620)
+        self.setMinimumWidth(440)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)

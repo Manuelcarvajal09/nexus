@@ -156,9 +156,12 @@ def calculate_panel_geometry(
         # delegate's card height; reserving it prevents Qt from growing the
         # top-level window below the physical screen edge.
         panel_height = card_height + 16 + chrome_height
-        # A minimum breathable surface prevents the native Qt layout from
-        # clipping the card row when Windows font scaling enlarges chrome.
-        panel_height = max(340, panel_height)
+        # Keep the quick shelf content-driven.  A previous 340px floor did
+        # prevent clipping, but on the Windows desktop it also left a large
+        # empty band below the single card row.  The measured chrome height
+        # already accounts for DPI/font scaling, so only a small safety floor
+        # is required here.
+        panel_height = max(260, panel_height)
         panel_height = max(1, min(panel_height, round(available_height * 0.36)))
 
     # Content-driven width: start from how many cards we actually want

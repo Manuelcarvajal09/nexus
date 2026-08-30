@@ -200,7 +200,7 @@ class TestChromeHeightParameter:
         typical 1080p desktop, not the ~300px/28%-of-screen it used to
         render at with the old chrome-height estimate."""
         geo = calculate_panel_geometry(0, 0, 1920, 1080)
-        assert 300 <= geo.height <= 390
+        assert 240 <= geo.height <= 300
 
 
 class TestExpandedView:
