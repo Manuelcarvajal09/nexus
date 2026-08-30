@@ -494,7 +494,9 @@ class TimelineWindow(QWidget):
         # size after setGeometry(). Clamp the *actual* resulting height so
         # no card is ever rendered below Windows' usable work area.
         if sys.platform == "win32":
-            max_y = avail.y() + avail.height() - self.height() - 24
+            # Keep a visual breathing zone above the taskbar; this also
+            # accommodates Windows' scaled compositor shadow extents.
+            max_y = avail.y() + avail.height() - self.height() - 110
             self.move(self.x(), max(avail.y() + 14, min(self.y(), max_y)))
         return True
 
