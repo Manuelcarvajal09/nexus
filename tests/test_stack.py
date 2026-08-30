@@ -156,8 +156,8 @@ class TestRemovalAndClear:
 
         stack.remove_persistent(b.id)
         assert [i.id for i in stack.items()] == [a.id, c.id]
-        # remove_persistent also deletes the underlying history row.
-        assert storage.get(b.id) is None
+        # Stack removal is session-only; general clipboard history survives.
+        assert storage.get(b.id) is not None
 
     def test_removing_unknown_id_is_a_safe_noop(self, storage, paste_service):
         stack = ClipStack(storage=storage, paste_service=paste_service)

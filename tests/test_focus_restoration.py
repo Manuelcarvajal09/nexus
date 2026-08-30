@@ -101,9 +101,9 @@ class TestStackWindowAdvanceOrder:
         window.advance()
         # _do_advance (which calls paste_next_and_advance -> synthesize) is
         # deferred; hide must already have happened and nothing else yet.
-        assert calls == ["hide"]
+        assert calls == ["write", "hide"]
 
         QTest.qWait(120)
-        assert calls[0] == "hide"
+        assert calls[:2] == ["write", "hide"]
         assert "synthesize" in calls
         assert calls.index("hide") < calls.index("synthesize")

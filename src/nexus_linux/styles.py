@@ -485,6 +485,25 @@ QPushButton#expandToggle:hover {{
     background-color: {t.card_bg_hover};
 }}
 
+QPushButton#closeButton {{
+    min-width: 26px;
+    max-width: 26px;
+    min-height: 26px;
+    max-height: 26px;
+    padding: 0;
+    border-radius: 13px;
+    background-color: transparent;
+    border: 1px solid {t.card_border};
+    color: {t.text_secondary};
+    font-size: 18px;
+}}
+
+QPushButton#closeButton:hover {{
+    background-color: {t.card_bg_hover};
+    border-color: {t.card_border_hover};
+    color: {t.text_primary};
+}}
+
 QLabel#emptyState {{
     color: {t.text_secondary};
     font-size: 13px;

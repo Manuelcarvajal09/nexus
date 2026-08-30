@@ -242,9 +242,12 @@ class MainWindow(QWidget):
         # paste_service.POST_HIDE_PASTE_DELAY_MS docstring. Synthesizing
         # while this window is still active sends the Ctrl+V back into
         # Nexus itself instead of the app the user meant to paste into.
-        self._paste.write_to_clipboard(item)
-        self.fade_hide()
-        QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, self._paste.synthetic_paste)
+        if hasattr(self._paste, "paste_item"):
+            self._paste.paste_item(item, self)
+        else:
+            self._paste.write_to_clipboard(item)
+            self.fade_hide()
+            QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, self._paste.synthetic_paste)
 
     def _on_list_selection_changed(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
         if previous is not None:

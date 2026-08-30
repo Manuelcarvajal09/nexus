@@ -40,7 +40,15 @@ class ClipStack:
     def remove_persistent(self, item_id: int) -> None:
         self._items = [i for i in self._items if i.id != item_id]
         self._persist()
-        self.storage.delete(item_id)
+
+    def consume_id(self, item_id: int) -> Optional[ClipItem]:
+        item = next((candidate for candidate in self._items if candidate.id == item_id), None)
+        if item is None:
+            return None
+        self._items = [candidate for candidate in self._items if candidate.id != item_id]
+        self._persist()
+        self.arm_next()
+        return item
 
     def items(self) -> list[ClipItem]:
         return list(self._items)

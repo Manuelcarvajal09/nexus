@@ -15,7 +15,7 @@ from .storage import StorageService
 from .timeline_window import TimelineWindow
 from .windows_clipboard import WindowsClipboardMonitor
 from .windows_paste import WindowsPasteService
-from .windows_platform import WM_HOTKEY, VK_C, VK_V, foreground_window, register_hotkey, unregister_hotkey
+from .windows_platform import WM_HOTKEY, acquire_single_instance_mutex, register_hotkey, release_handle, unregister_hotkey
 from .windows_settings import load_settings, vk_for
 
 PANEL_HOTKEY, STACK_HOTKEY = 1, 2
@@ -31,6 +31,9 @@ class HotkeyFilter(QAbstractNativeEventFilter):
         return False, 0
 
 def main():
+    mutex = acquire_single_instance_mutex()
+    if mutex is None:
+        return 0
     paths.ensure_dirs()
     logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(paths.LOG_PATH, encoding="utf-8")])
     app = QApplication(sys.argv); app.setApplicationName("Nexus")
@@ -48,9 +51,11 @@ def main():
         if stack_window.is_collecting(): stack_window.add_capture(item)
     monitor.captured.connect(captured)
     def show_panel():
-        paste.remember_target(); timeline.show_and_focus()
+        if timeline.isVisible(): timeline.fade_hide()
+        else: paste.remember_target(); timeline.show_and_focus()
     def show_stack():
-        paste.remember_target(); stack_window.show_and_focus()
+        if stack_window.isVisible(): stack_window.fade_hide()
+        else: paste.remember_target(); stack_window.start_collecting(); stack_window.show_and_focus()
     def hotkey(identifier):
         (show_panel if identifier == PANEL_HOTKEY else show_stack)()
     filter_ = HotkeyFilter(hotkey); app.installNativeEventFilter(filter_)
@@ -63,7 +68,7 @@ def main():
         raise RuntimeError("No se pudieron registrar los atajos globales configurados")
     tray = QSystemTrayIcon(QIcon(str(RESOURCES_DIR / "nexus-tray.png"))); tray.setToolTip("Nexus")
     menu = QMenu(); menu.addAction("Abrir Nexus", show_panel); menu.addAction("Nexus Stack", show_stack); menu.addAction("Biblioteca", library.show_and_focus); menu.addSeparator(); menu.addAction("Salir", app.quit); tray.setContextMenu(menu); tray.show()
-    app.aboutToQuit.connect(lambda: (unregister_hotkey(hwnd, PANEL_HOTKEY), unregister_hotkey(hwnd, STACK_HOTKEY)))
+    app.aboutToQuit.connect(lambda: (unregister_hotkey(hwnd, PANEL_HOTKEY), unregister_hotkey(hwnd, STACK_HOTKEY), release_handle(mutex)))
     if os.environ.get("NEXUS_OPEN_ON_START") == "1":
         QTimer.singleShot(250, show_panel)
     return app.exec()

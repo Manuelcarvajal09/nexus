@@ -168,6 +168,12 @@ class TimelineWindow(QWidget):
         self._expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._expand_btn.clicked.connect(self._toggle_expanded)
         header.addWidget(self._expand_btn)
+        self._close_btn = QPushButton("×")
+        self._close_btn.setObjectName("closeButton")
+        self._close_btn.setToolTip("Ocultar Nexus (Esc)")
+        self._close_btn.setAccessibleName("Ocultar Nexus")
+        self._close_btn.clicked.connect(self.fade_hide)
+        header.addWidget(self._close_btn)
         chrome_layout.addLayout(header)
 
         self._search = QLineEdit()
@@ -205,7 +211,6 @@ class TimelineWindow(QWidget):
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setFixedHeight(CARD_HEIGHT + 16)
-        self._list.activated.connect(self._on_activated)
         self._list.doubleClicked.connect(self._on_activated)
         self._list.installEventFilter(self)
         root.addWidget(self._list)
@@ -251,9 +256,12 @@ class TimelineWindow(QWidget):
         the delay. write_to_clipboard() itself needs no delay -- it doesn't
         touch window focus at all."""
         log.info("select_and_paste: item #%s", item.id)
-        self._paste.write_to_clipboard(item)
-        self.fade_hide()
-        QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, self._paste.synthetic_paste)
+        if hasattr(self._paste, "paste_item"):
+            self._paste.paste_item(item, self)
+        else:
+            self._paste.write_to_clipboard(item)
+            self.fade_hide()
+            QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, self._paste.synthetic_paste)
 
     def _on_activated(self, index) -> None:
         item = self._model.item_at(index.row())

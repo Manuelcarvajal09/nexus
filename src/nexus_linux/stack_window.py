@@ -48,6 +48,7 @@ class StackWindow(QWidget):
     def __init__(self, clip_stack: ClipStack, parent=None):
         super().__init__(parent)
         self._stack = clip_stack
+        self._collecting = bool(clip_stack.items())
         self._pending_activation = False
         self._persistent_when_inactive = sys.platform == "win32"
         self._dismiss_timer = QTimer(self)
@@ -89,6 +90,15 @@ class StackWindow(QWidget):
         self._set_order_control()
         self._order_btn.clicked.connect(self._toggle_order)
         header.addWidget(self._order_btn)
+        self._pause_btn = QPushButton("Pausar")
+        self._pause_btn.setToolTip("Pausar o reanudar la captura del Stack")
+        self._pause_btn.clicked.connect(self.toggle_collecting)
+        header.addWidget(self._pause_btn)
+        close_btn = QPushButton("×")
+        close_btn.setObjectName("closeButton")
+        close_btn.setToolTip("Ocultar Stack; la sesión permanece activa")
+        close_btn.clicked.connect(self.fade_hide)
+        header.addWidget(close_btn)
         root.addLayout(header)
 
         next_label = QLabel("SIGUIENTE")
@@ -143,7 +153,15 @@ class StackWindow(QWidget):
         self.refresh()
 
     def is_collecting(self) -> bool:
-        return self.isVisible()
+        return self._collecting
+
+    def start_collecting(self) -> None:
+        self._collecting = True
+        self._pause_btn.setText("Pausar")
+
+    def toggle_collecting(self) -> None:
+        self._collecting = not self._collecting
+        self._pause_btn.setText("Pausar" if self._collecting else "Reanudar")
 
     def has_pending_items(self) -> bool:
         return len(self._stack.items()) > 0
@@ -254,8 +272,11 @@ class StackWindow(QWidget):
         the 'smart dismiss' philosophy: once the user has confirmed they're
         pasting from the Stack, it should get out of the way immediately,
         not just once it empties -- it reopens on the next Ctrl+Shift+C."""
-        self.fade_hide()
-        QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, self._do_advance)
+        items = self._stack.items()
+        if not items:
+            return
+        item = items[-1] if self._stack.reversed_order else items[0]
+        self._paste_item(item.id)
 
     def _do_advance(self) -> None:
         self._stack.paste_next_and_advance()
@@ -263,16 +284,18 @@ class StackWindow(QWidget):
 
     def _paste_item(self, item_id: int) -> None:
         item = next((candidate for candidate in self._stack.items() if candidate.id == item_id), None)
-        if item is None or not self._stack.paste_service.write_to_clipboard(item):
+        if item is None:
             return
-        self.fade_hide()
-        QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, lambda: self._finish_item_paste(item_id))
+        paste = self._stack.paste_service
+        if hasattr(paste, "paste_item"):
+            paste.paste_item(item, self, lambda ok: self._finish_item_paste(item_id, ok))
+        elif paste.write_to_clipboard(item):
+            self.fade_hide()
+            QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, lambda: self._finish_item_paste(item_id, paste.synthetic_paste()))
 
-    def _finish_item_paste(self, item_id: int) -> None:
-        if self._stack.paste_service.synthetic_paste():
-            self._stack._items = [item for item in self._stack.items() if item.id != item_id]
-            self._stack._persist()
-            self._stack.arm_next()
+    def _finish_item_paste(self, item_id: int, ok: bool) -> None:
+        if ok:
+            self._stack.consume_id(item_id)
             self.refresh()
 
     def _selected_item_id(self):
