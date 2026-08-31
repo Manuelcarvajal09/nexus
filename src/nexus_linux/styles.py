@@ -213,12 +213,9 @@ def qss() -> str:
     TEXT_SECONDARY, TEXT_TERTIARY = t.text_secondary, t.text_tertiary
 
     widget_fill = "transparent" if t.liquid_glass else t.bg
-    panel_fill = (
-        "qlineargradient(x1:0, y1:0, x2:0.92, y2:1, "
-        "stop:0 rgba(255, 255, 255, 56), stop:0.045 rgba(255, 255, 255, 33), "
-        "stop:0.46 rgba(70, 102, 135, 97), stop:1 rgba(8, 15, 26, 196))"
-        if t.liquid_glass else t.bg_elevated
-    )
+    # LiquidGlassSurface paints its own gradient with QColor below.  Qt's
+    # QSS alpha blending is inconsistent on translucent Win32 top-levels.
+    panel_fill = "transparent" if t.liquid_glass else t.bg_elevated
     card_fill = (
         "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.19), "
         "stop:0.10 rgba(255, 255, 255, 0.105), stop:1 rgba(210, 235, 255, 0.055))"

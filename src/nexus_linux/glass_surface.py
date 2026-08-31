@@ -5,7 +5,7 @@ a directional specular rim, a dim inner edge, and restrained corner caustics.
 They make the surface read as shaped glass while remaining non-interactive.
 """
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QRadialGradient
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QRadialGradient
 from PySide6.QtWidgets import QWidget
 
 from . import styles
@@ -39,6 +39,15 @@ class LiquidGlassSurface(QWidget):
         radius = float(theme.radius_panel - 1)
         outline = QPainterPath()
         outline.addRoundedRect(rect, radius, radius)
+        # The main material is intentionally painted here rather than via
+        # QSS: on a translucent Windows HWND, QSS's rgba gradient can become
+        # far more transparent than specified and destroy text contrast.
+        body = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        body.setColorAt(0.00, QColor(40, 51, 70, 248))
+        body.setColorAt(0.18, QColor(29, 37, 53, 250))
+        body.setColorAt(0.58, QColor(19, 25, 39, 252))
+        body.setColorAt(1.00, QColor(7, 12, 23, 254))
+        painter.fillPath(outline, body)
         painter.setClipPath(outline)
 
         painter.setClipPath(outline)
