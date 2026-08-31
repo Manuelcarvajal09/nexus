@@ -28,6 +28,7 @@ user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BO
 user32.SetForegroundWindow.argtypes = [wintypes.HWND]
 user32.SetFocus.argtypes = [wintypes.HWND]
 user32.IsWindow.argtypes = [wintypes.HWND]
+user32.IsWindowVisible.argtypes = [wintypes.HWND]
 user32.IsIconic.argtypes = [wintypes.HWND]
 user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_uint, ctypes.c_uint]
@@ -80,15 +81,19 @@ def capture_focus_target() -> FocusTarget | None:
     return FocusTarget(hwnd, focused, thread_id, int(pid.value))
 
 def restore_focus_target(target: FocusTarget | None, nexus_pid: int) -> bool:
-    if target is None or target.process_id == nexus_pid or not user32.IsWindow(target.window): return False
+    if target is None or target.process_id == nexus_pid or not user32.IsWindow(target.window) or not user32.IsWindowVisible(target.window): return False
     current_thread = int(kernel32.GetCurrentThreadId())
-    attached = bool(target.thread_id != current_thread and user32.AttachThreadInput(current_thread, target.thread_id, True))
+    foreground = foreground_window()
+    foreground_thread = int(user32.GetWindowThreadProcessId(foreground, None)) if foreground else 0
+    attached_target = bool(target.thread_id != current_thread and user32.AttachThreadInput(current_thread, target.thread_id, True))
+    attached_foreground = bool(foreground_thread and foreground_thread not in (current_thread,target.thread_id) and user32.AttachThreadInput(current_thread, foreground_thread, True))
     try:
         if user32.IsIconic(target.window): user32.ShowWindow(target.window, SW_RESTORE)
         user32.SetForegroundWindow(target.window)
         if target.focused_control and user32.IsWindow(target.focused_control): user32.SetFocus(target.focused_control)
     finally:
-        if attached: user32.AttachThreadInput(current_thread, target.thread_id, False)
+        if attached_foreground: user32.AttachThreadInput(current_thread, foreground_thread, False)
+        if attached_target: user32.AttachThreadInput(current_thread, target.thread_id, False)
     return foreground_window() == target.window
 
 def register_hotkey(hwnd: int, identifier: int, virtual_key: int) -> bool:

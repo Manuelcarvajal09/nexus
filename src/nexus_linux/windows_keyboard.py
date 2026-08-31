@@ -5,7 +5,7 @@ from ctypes import wintypes
 from PySide6.QtCore import QObject, Signal
 from .windows_platform import foreground_window, window_process_id
 
-WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN, WM_QUIT = 13, 0x0100, 0x0104, 0x0012
+WH_KEYBOARD_LL, WM_KEYUP, WM_SYSKEYUP, WM_QUIT = 13, 0x0101, 0x0105, 0x0012
 VK_CONTROL, VK_V, LLKHF_INJECTED = 0x11, 0x56, 0x10
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -33,7 +33,10 @@ class WindowsPasteWatcher(QObject):
         self._thread_id=int(kernel32.GetCurrentThreadId())
         @HOOKPROC
         def callback(code,wparam,lparam):
-            if code>=0 and int(wparam) in (WM_KEYDOWN,WM_SYSKEYDOWN):
+            # Confirm only on key release. Consuming on keydown can replace
+            # the clipboard with the following Stack item before slower
+            # Electron/UWP targets finish dispatching their paste command.
+            if code>=0 and int(wparam) in (WM_KEYUP,WM_SYSKEYUP):
                 event=ctypes.cast(lparam,ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
                 external=window_process_id(foreground_window()) != os.getpid()
                 ctrl=bool(user32.GetAsyncKeyState(VK_CONTROL)&0x8000)

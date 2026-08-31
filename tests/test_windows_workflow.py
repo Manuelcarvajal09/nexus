@@ -49,3 +49,16 @@ def test_stack_consumes_selected_only_after_success(qapp,storage):
     assert [item.id for item in stack.items()] == [first.id,second.id]
     window._finish_item_paste(first.id,True)
     assert [item.id for item in stack.items()] == [second.id]
+
+
+def test_fresh_stack_first_item_survives_failed_native_paste(qapp,storage):
+    paste=CentralPaste(); stack=ClipStack(storage,paste)
+    first=storage.capture(kind="text",text_content="NEXUS_STACK_1")
+    second=storage.capture(kind="text",text_content="NEXUS_STACK_2")
+    third=storage.capture(kind="text",text_content="NEXUS_STACK_3")
+    for item in (first,second,third): stack.add(item)
+    window=StackWindow(stack)
+    window._finish_item_paste(first.id,False)
+    assert [item.id for item in stack.items()] == [first.id,second.id,third.id]
+    window._finish_item_paste(first.id,True)
+    assert [item.id for item in stack.items()] == [second.id,third.id]

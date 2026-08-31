@@ -47,7 +47,7 @@ def main():
     paste_watcher = WindowsPasteWatcher(app)
     def consume_real_stack_paste():
         if stack_window.is_collecting() and stack_window.has_pending_items():
-            QTimer.singleShot(80, lambda: (stack.consume_after_real_paste(), stack_window.refresh()))
+            QTimer.singleShot(180, lambda: (stack.consume_after_real_paste(), stack_window.refresh()))
     paste_watcher.paste_detected.connect(consume_real_stack_paste)
     paste_watcher.start()
     def captured(item):
