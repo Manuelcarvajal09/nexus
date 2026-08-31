@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QBuffer, QIODevice, QObject, Qt, Signal
+from PySide6.QtCore import QBuffer, QIODevice, QObject, QTimer, Qt, Signal
 from PySide6.QtGui import QGuiApplication
 from .windows_platform import clipboard_requests_exclusion, foreground_process_name
 
@@ -12,6 +12,7 @@ class WindowsClipboardMonitor(QObject):
         super().__init__(parent)
         self._storage = storage
         self._suppressed = False
+        self._suppression_generation = 0
         self._last_hash = None
         self._clipboard = QGuiApplication.clipboard()
         self._settings = settings or {}
@@ -19,6 +20,16 @@ class WindowsClipboardMonitor(QObject):
 
     def suppress_next_change(self):
         self._suppressed = True
+        self._suppression_generation += 1
+        generation = self._suppression_generation
+        # Identical clipboard writes can be coalesced without dataChanged.
+        # Expire on the next event-loop turn so a later USER copy is never
+        # swallowed by a stale suppression flag.
+        QTimer.singleShot(0, lambda: self._expire_suppression(generation))
+
+    def _expire_suppression(self, generation: int) -> None:
+        if generation == self._suppression_generation:
+            self._suppressed = False
 
     def _capture(self):
         if self._suppressed:

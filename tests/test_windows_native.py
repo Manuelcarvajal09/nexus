@@ -5,6 +5,7 @@ from nexus_linux.windows_platform import FocusTarget
 from nexus_linux.windows_settings import DEFAULTS, vk_for
 from nexus_linux.windows_paste import PasteResult
 from nexus_linux import windows_platform
+from nexus_linux import windows_clipboard
 
 
 def test_windows_hotkey_format_is_explicit_and_configurable():
@@ -23,6 +24,16 @@ def test_nexus_synthetic_input_has_private_marker(monkeypatch):
     service=windows_paste.WindowsPasteService()
     assert service._send_ctrl_v() is True
     assert {int(event.ki.dwExtraInfo) for event in captured} == {windows_paste.NEXUS_INPUT_MARKER}
+
+
+def test_stale_clipboard_suppression_expires_before_next_user_copy(qapp, storage, monkeypatch):
+    callbacks=[]
+    monkeypatch.setattr(windows_clipboard.QTimer,"singleShot",lambda delay,callback: callbacks.append(callback))
+    monitor=windows_clipboard.WindowsClipboardMonitor(storage)
+    monitor.suppress_next_change()
+    assert monitor._suppressed is True
+    callbacks.pop()()
+    assert monitor._suppressed is False
 
 
 def _target():

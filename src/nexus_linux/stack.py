@@ -24,7 +24,10 @@ class ClipStack:
     reversed_order: bool = False
     _items: list[ClipItem] = field(default_factory=list)
 
-    def add(self, item: ClipItem) -> bool:
+    def add(
+        self, item: ClipItem, already_on_clipboard: bool = False,
+        arm_existing_head: bool = True,
+    ) -> bool:
         """Mirrors PasteStack.swift's collectLatestCopy: skips an item
         already present in THIS session by content hash (recopying the same
         thing twice while the stack is open doesn't duplicate the row), then
@@ -34,7 +37,13 @@ class ClipStack:
             return False
         self._items.append(item)
         self._persist()
-        self.arm_next()
+        # A freshly captured first item is already the system clipboard's
+        # current value. Rewriting the identical payload is dangerous on
+        # Windows: QClipboard may emit no dataChanged for an identical value,
+        # leaving one-shot suppression armed for the user's next real copy.
+        # Once a head exists, re-arm it after later captures to preserve FIFO.
+        if not (already_on_clipboard and len(self._items) == 1) and arm_existing_head:
+            self.arm_next()
         return True
 
     def remove_persistent(self, item_id: int) -> None:

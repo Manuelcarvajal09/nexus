@@ -194,7 +194,16 @@ class StackWindow(QWidget):
         return len(self._stack.items()) > 0
 
     def add_capture(self, item) -> None:
-        self._stack.add(item)  # dedup-by-hash + auto-arm handled in ClipStack
+        # This slot runs inside QClipboard.dataChanged. Writing the FIFO head
+        # back to the clipboard reentrantly from that notification is not
+        # reliable on Windows: the original clipboard transaction can win
+        # afterward, leaving B/C in the clipboard while the logical head is A.
+        # Mutate/persist now, then re-arm only after the current event returns.
+        added = self._stack.add(
+            item, already_on_clipboard=True, arm_existing_head=False,
+        )
+        if added and len(self._stack.items()) > 1:
+            QTimer.singleShot(0, self._stack.arm_next)
         self.refresh()
 
     def refresh(self) -> None:

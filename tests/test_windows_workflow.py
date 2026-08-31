@@ -41,6 +41,21 @@ def test_stack_collecting_survives_window_hide(qapp,storage):
     assert window.is_collecting() is True
 
 
+def test_stack_defers_fifo_rearm_outside_clipboard_callback(qapp,storage,monkeypatch):
+    paste=CentralPaste(); stack=ClipStack(storage,paste); window=StackWindow(stack)
+    callbacks=[]
+    monkeypatch.setattr("nexus_linux.stack_window.QTimer.singleShot",lambda delay,callback: callbacks.append(callback))
+    first=storage.capture(kind="text",text_content="FIRST")
+    second=storage.capture(kind="text",text_content="SECOND")
+    window.add_capture(first)
+    assert paste.written == []
+    window.add_capture(second)
+    assert paste.written == []
+    assert len(callbacks) == 1
+    callbacks.pop()()
+    assert paste.written[-1].id == first.id
+
+
 def test_stack_is_draggable_and_stays_on_top(qapp,storage):
     window=StackWindow(ClipStack(storage,CentralPaste()))
     assert window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint

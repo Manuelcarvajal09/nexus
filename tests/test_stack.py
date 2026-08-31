@@ -21,6 +21,17 @@ def _url(storage, url: str):
 
 
 class TestBasicSequencing:
+    def test_first_captured_item_is_not_rewritten_but_remains_fifo_head(self, storage, paste_service):
+        stack = ClipStack(storage=storage, paste_service=paste_service)
+        first, second = _text(storage, "FIRST"), _text(storage, "SECOND")
+
+        stack.add(first, already_on_clipboard=True)
+        assert paste_service.written == []
+
+        stack.add(second, already_on_clipboard=True)
+        assert paste_service.written[-1].id == first.id
+        assert stack.consume_after_real_paste().id == first.id
+
     def test_single_item_add_and_consume_empties_stack(self, storage, paste_service):
         stack = ClipStack(storage=storage, paste_service=paste_service)
         a = _text(storage, "hello")
