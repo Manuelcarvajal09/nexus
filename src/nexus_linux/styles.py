@@ -227,6 +227,7 @@ def qss() -> str:
         "stop:0.12 rgba(255, 255, 255, 0.14), stop:1 rgba(255, 255, 255, 0.065))"
         if t.liquid_glass else t.card_bg_hover
     )
+    panel_border = "transparent" if t.liquid_glass else t.card_border_hover
     return f"""
 * {{
     font-family: {t.font_family};
@@ -245,7 +246,7 @@ QWidget#overlayWindow {{
 
 QWidget#panelSurface {{
     background: {panel_fill};
-    border: 1px solid {t.card_border_hover};
+    border: 1px solid {panel_border};
     border-radius: {t.radius_panel}px;
 }}
 
