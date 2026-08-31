@@ -197,6 +197,11 @@ QWidget#panelSurface {{
     border-radius: {t.radius_panel}px;
 }}
 
+QWidget#stackDragHandle {{
+    background-color: transparent;
+    border: none;
+}}
+
 QListView#timelineList, QListWidget#stackList {{
     background-color: transparent;
     border: none;

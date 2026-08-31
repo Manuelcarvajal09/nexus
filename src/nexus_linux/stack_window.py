@@ -50,6 +50,8 @@ class StackWindow(QWidget):
         self._stack = clip_stack
         self._collecting = bool(clip_stack.items())
         self._pending_activation = False
+        self._drag_offset = None
+        self._drag_sources = set()
         self._persistent_when_inactive = sys.platform == "win32"
         self._dismiss_timer = QTimer(self)
         self._dismiss_timer.setSingleShot(True)
@@ -75,7 +77,11 @@ class StackWindow(QWidget):
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(12)
 
-        header = QHBoxLayout()
+        self._header_widget = QWidget(self._surface)
+        self._header_widget.setObjectName("stackDragHandle")
+        self._header_widget.setCursor(Qt.CursorShape.SizeAllCursor)
+        header = QHBoxLayout(self._header_widget)
+        header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(9)
         brand = QLabel()
         brand_pixmap = QPixmap(str(RESOURCES_DIR / "nexus-icon.png"))
@@ -109,7 +115,14 @@ class StackWindow(QWidget):
         close_btn.setToolTip("Ocultar Stack; la sesión permanece activa")
         close_btn.clicked.connect(self.fade_hide)
         header.addWidget(close_btn)
-        root.addLayout(header)
+        root.addWidget(self._header_widget)
+        # Labels do not contain interactive actions, so dragging over the
+        # logo/title/subtitle behaves exactly like dragging a normal title
+        # bar. Buttons are deliberately excluded and remain clickable.
+        for drag_source in (self._header_widget, brand, title, self._subtitle):
+            drag_source.installEventFilter(self)
+            drag_source.setCursor(Qt.CursorShape.SizeAllCursor)
+            self._drag_sources.add(drag_source)
 
         next_label = QLabel("SIGUIENTE")
         next_label.setObjectName("subtitle")
@@ -349,6 +362,22 @@ class StackWindow(QWidget):
                 self.refresh()
             return
         super().keyPressEvent(event)
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched in self._drag_sources:
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                watched.setCursor(Qt.CursorShape.ClosedHandCursor)
+                return True
+            if event.type() == QEvent.Type.MouseMove and self._drag_offset is not None:
+                if event.buttons() & Qt.MouseButton.LeftButton:
+                    self.move(event.globalPosition().toPoint() - self._drag_offset)
+                    return True
+            if event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+                self._drag_offset = None
+                watched.setCursor(Qt.CursorShape.SizeAllCursor)
+                return True
+        return super().eventFilter(watched, event)
 
     def resizeEvent(self, event) -> None:
         # Preserve the action at the smallest supported width without making

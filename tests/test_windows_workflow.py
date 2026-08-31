@@ -41,6 +41,14 @@ def test_stack_collecting_survives_window_hide(qapp,storage):
     assert window.is_collecting() is True
 
 
+def test_stack_is_draggable_and_stays_on_top(qapp,storage):
+    window=StackWindow(ClipStack(storage,CentralPaste()))
+    assert window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+    assert window._header_widget in window._drag_sources
+    assert window._order_btn not in window._drag_sources
+    assert window._pause_btn not in window._drag_sources
+
+
 def test_stack_consumes_selected_only_after_success(qapp,storage):
     paste=CentralPaste(); stack=ClipStack(storage,paste)
     first=storage.capture(kind="text",text_content="A"); second=storage.capture(kind="text",text_content="B")
