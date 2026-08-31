@@ -57,8 +57,8 @@ PRESETS: dict[str, Theme] = {
         display_name="Liquid Glass · macOS 27",
         # Neutral glass deliberately has almost no inherent hue.  The cool
         # cast comes from reflected/specular layers rather than a blue fill.
-        bg="rgba(7, 12, 20, 0.30)", bg_elevated="rgba(30, 42, 58, 0.40)",
-        card_bg="rgba(235, 247, 255, 0.105)", card_bg_hover="rgba(240, 250, 255, 0.18)",
+        bg="rgba(7, 12, 20, 0.38)", bg_elevated="rgba(30, 42, 58, 0.48)",
+        card_bg="rgba(235, 247, 255, 0.13)", card_bg_hover="rgba(240, 250, 255, 0.21)",
         card_border="rgba(255, 255, 255, 0.24)", card_border_hover="rgba(255, 255, 255, 0.52)",
         accent="#82C7FF", accent_dim="rgba(103, 181, 255, 0.28)", accent_ink="#06121E",
         secondary="#B8DCFF",
@@ -213,8 +213,8 @@ def qss() -> str:
     widget_fill = "transparent" if t.liquid_glass else t.bg
     panel_fill = (
         "qlineargradient(x1:0, y1:0, x2:0.92, y2:1, "
-        "stop:0 rgba(255, 255, 255, 0.16), stop:0.045 rgba(255, 255, 255, 0.075), "
-        "stop:0.46 rgba(70, 102, 135, 0.25), stop:1 rgba(8, 15, 26, 0.50))"
+        "stop:0 rgba(255, 255, 255, 0.18), stop:0.045 rgba(255, 255, 255, 0.09), "
+        "stop:0.46 rgba(70, 102, 135, 0.30), stop:1 rgba(8, 15, 26, 0.58))"
         if t.liquid_glass else t.bg_elevated
     )
     card_fill = (

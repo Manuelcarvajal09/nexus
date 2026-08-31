@@ -36,7 +36,7 @@ def test_liquid_glass_is_exposed_and_has_optical_composition():
         styles._active_key = "liquid_glass"
         sheet = styles.qss()
         assert "qlineargradient" in sheet
-        assert "rgba(255, 255, 255, 0.16)" in sheet
+        assert "rgba(255, 255, 255, 0.18)" in sheet
         assert "border-radius: 32px" in sheet
     finally:
         styles._active_key = previous
