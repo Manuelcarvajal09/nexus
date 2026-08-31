@@ -63,9 +63,11 @@ dwmapi.DwmSetWindowAttribute.restype = ctypes.c_long
 # rim/highlight composition in styles.py rather than presented as the design.
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 DWMWA_WINDOW_CORNER_PREFERENCE = 33
+DWMWA_BORDER_COLOR = 34
 DWMWA_SYSTEMBACKDROP_TYPE = 38
 DWMWCP_ROUND = 2
 DWMSBT_AUTO, DWMSBT_TRANSIENTWINDOW = 0, 3
+DWMWA_COLOR_DEFAULT, DWMWA_COLOR_NONE = 0xFFFFFFFF, 0xFFFFFFFE
 
 class ACCENTPOLICY(ctypes.Structure):
     _fields_ = [
@@ -167,11 +169,17 @@ def apply_liquid_glass_backdrop(hwnd: int, enabled: bool) -> bool:
         return False
     dark = ctypes.c_int(1)
     corner = ctypes.c_int(DWMWCP_ROUND)
+    border_color = ctypes.c_uint(DWMWA_COLOR_NONE if enabled else DWMWA_COLOR_DEFAULT)
     # Reset the system-selected material first: its dark-mode tint is much too
     # gray for Liquid Glass and destroys the colors that should pass through.
     backdrop = ctypes.c_int(DWMSBT_AUTO)
     dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(dark), ctypes.sizeof(dark))
     dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ctypes.byref(corner), ctypes.sizeof(corner))
+    # Windows 11 otherwise adds its own small-radius outline around the HWND,
+    # visibly crossing the larger Liquid Glass corner at the top left/right.
+    dwmapi.DwmSetWindowAttribute(
+        hwnd, DWMWA_BORDER_COLOR, ctypes.byref(border_color), ctypes.sizeof(border_color)
+    )
     dwm_result = dwmapi.DwmSetWindowAttribute(
         hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ctypes.byref(backdrop), ctypes.sizeof(backdrop)
     )
