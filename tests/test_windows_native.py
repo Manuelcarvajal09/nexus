@@ -6,11 +6,19 @@ from nexus_linux.windows_settings import DEFAULTS, vk_for
 from nexus_linux.windows_paste import PasteResult
 from nexus_linux import windows_platform
 from nexus_linux import windows_clipboard
+from nexus_linux.windows_app import effective_retention_days
 
 
 def test_windows_hotkey_format_is_explicit_and_configurable():
     assert vk_for(DEFAULTS["panel_hotkey"]) == ord("V")
     assert vk_for("Ctrl+Shift+X") == ord("X")
+
+
+def test_windows_retention_never_drops_below_thirty_days():
+    assert effective_retention_days({}) == 30
+    assert effective_retention_days({"retention_days": 7}) == 30
+    assert effective_retention_days({"retention_days": 90}) == 90
+    assert effective_retention_days({"retention_days": "invalid"}) == 30
 
 
 def test_win32_input_structure_has_native_size():

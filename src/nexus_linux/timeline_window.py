@@ -29,7 +29,7 @@ displayed, independent of focus location."""
 import logging
 import sys
 
-from PySide6.QtCore import QEvent, QRect, Qt, QTimer
+from PySide6.QtCore import QEvent, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QCursor, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -95,6 +95,8 @@ class _TimelineListView(QListView):
 
 
 class TimelineWindow(QWidget):
+    manage_pinboards_requested = Signal()
+    theme_requested = Signal(str)
     def __init__(
         self, storage: StorageService, paste_service: PasteService,
         preview_service: PreviewService | None = None, parent=None,
@@ -170,6 +172,20 @@ class TimelineWindow(QWidget):
         self._count_badge = QLabel("0")
         self._count_badge.setObjectName("badgeCompact")
         header.addWidget(self._count_badge)
+
+        self._style_btn = QPushButton("Estilo")
+        self._style_btn.setObjectName("expandToggle")
+        self._style_btn.setToolTip("Cambiar el estilo visual de Nexus")
+        style_menu = QMenu(self._style_btn)
+        self._theme_actions = {}
+        for theme_key, theme_label in styles.theme_choices():
+            action = style_menu.addAction(theme_label)
+            action.setCheckable(True)
+            action.setChecked(theme_key == styles.active_theme().key)
+            action.triggered.connect(lambda _checked, key=theme_key: self.theme_requested.emit(key))
+            self._theme_actions[action] = theme_key
+        self._style_btn.setMenu(style_menu)
+        header.addWidget(self._style_btn)
 
         self._expand_btn = QPushButton("Expandir  ⌄")
         self._expand_btn.setObjectName("expandToggle")
@@ -292,7 +308,19 @@ class TimelineWindow(QWidget):
         paste_action = menu.addAction("Pegar")
         plain_action = menu.addAction("Pegar como texto plano")
         copy_action = menu.addAction("Copiar nuevamente")
-        pin_action = menu.addAction("Fijar/Desfijar")
+        pin_menu = menu.addMenu("Pinboards")
+        boards = self._storage.list_pinboards()
+        board_actions = {}
+        for board in boards:
+            action = pin_menu.addAction(board.display_name)
+            action.setCheckable(True)
+            action.setChecked(board.id in item.pinboard_ids)
+            board_actions[action] = board.id
+        if not boards:
+            empty_action = pin_menu.addAction("No tienes pinboards todavía")
+            empty_action.setEnabled(False)
+        pin_menu.addSeparator()
+        manage_action = pin_menu.addAction("Administrar pinboards…")
         details_action = menu.addAction("Detalles")
         menu.addSeparator()
         delete_action = menu.addAction("Eliminar")
@@ -303,13 +331,15 @@ class TimelineWindow(QWidget):
             self._select_and_paste(item, True)
         elif chosen == copy_action:
             self._paste.write_to_clipboard(item)
-        elif chosen == pin_action:
-            boards = self._storage.list_pinboards()
-            if boards and boards[0].id in item.pinboard_ids:
-                self._storage.remove_from_pinboard(item.id, boards[0].id)
-            elif boards:
-                self._storage.add_to_pinboard(item.id, boards[0].id)
+        elif chosen in board_actions:
+            board_id = board_actions[chosen]
+            if board_id in item.pinboard_ids:
+                self._storage.remove_from_pinboard(item.id, board_id)
+            else:
+                self._storage.add_to_pinboard(item.id, board_id)
             self.refresh()
+        elif chosen == manage_action:
+            self.manage_pinboards_requested.emit()
         elif chosen == details_action:
             QMessageBox.information(self, "Detalles", f"Tipo: {item.kind}\nOrigen: {item.source_app or 'desconocido'}\nID local: {item.id}")
         elif chosen == delete_action:
@@ -437,6 +467,16 @@ class TimelineWindow(QWidget):
             btn.clicked.connect(lambda _checked, bid=board.id: self._select_pinboard(bid))
             self._pinboard_row.addWidget(btn)
             self._pinboard_buttons[board.id] = btn
+
+        manage_btn = QPushButton("+ Pinboard")
+        manage_btn.setObjectName("pinboardChipCompact")
+        manage_btn.setToolTip("Crear, renombrar, ordenar y personalizar pinboards")
+        manage_btn.clicked.connect(self.manage_pinboards_requested.emit)
+        self._pinboard_row.addWidget(manage_btn)
+
+    def set_theme_selection(self, key: str) -> None:
+        for action, action_key in self._theme_actions.items():
+            action.setChecked(action_key == key)
 
     # -- data -----------------------------------------------------------
 

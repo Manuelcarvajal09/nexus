@@ -29,6 +29,23 @@ def test_enter_and_double_click_share_central_paste(qapp,storage):
     assert paste.calls == [(item.id,False)]
 
 
+def test_timeline_exposes_pinboard_management_and_theme_controls(qapp,storage):
+    window=TimelineWindow(storage,CentralPaste())
+    requested=[]; themes=[]
+    window.manage_pinboards_requested.connect(lambda: requested.append(True))
+    window.theme_requested.connect(themes.append)
+    manage_button=next(
+        window._pinboard_row.itemAt(i).widget()
+        for i in range(window._pinboard_row.count())
+        if window._pinboard_row.itemAt(i).widget() and window._pinboard_row.itemAt(i).widget().text()=="+ Pinboard"
+    )
+    manage_button.click()
+    first_action=next(iter(window._theme_actions))
+    first_action.trigger()
+    assert requested == [True]
+    assert themes == [window._theme_actions[first_action]]
+
+
 def test_close_button_hides_without_quitting(qapp,storage):
     window=TimelineWindow(storage,CentralPaste()); window.show(); assert window.isVisible()
     QTest.mouseClick(window._close_btn,Qt.MouseButton.LeftButton)

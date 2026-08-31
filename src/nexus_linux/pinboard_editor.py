@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QMessageBox,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -47,9 +49,9 @@ class PinboardIconEditor(QDialog):
     """Returns via .selected_emoji / .selected_color after exec() == Accepted
     (exactly one of the two is set, matching the original's IconMode toggle)."""
 
-    def __init__(self, board: Pinboard, parent=None):
+    def __init__(self, board: Pinboard, parent=None, creating: bool = False):
         super().__init__(parent)
-        self.setWindowTitle(f"Ícono de {board.name}")
+        self.setWindowTitle("Nuevo pinboard" if creating else f"Editar {board.name}")
         self.setFixedWidth(300)
         self.setStyleSheet(styles.qss())
 
@@ -58,6 +60,14 @@ class PinboardIconEditor(QDialog):
 
         root = QVBoxLayout(self)
         root.setSpacing(14)
+
+        root.addWidget(QLabel("Nombre"))
+        self._name = QLineEdit(board.name)
+        self._name.setPlaceholderText("Nombre del pinboard")
+        self._name.selectAll()
+        root.addWidget(self._name)
+
+        root.addWidget(QLabel("Identidad visual"))
 
         toggle_row = QHBoxLayout()
         self._emoji_toggle = QPushButton("Emoji")
@@ -83,11 +93,18 @@ class PinboardIconEditor(QDialog):
         buttons.addWidget(cancel_btn)
         save_btn = QPushButton("Guardar")
         save_btn.setObjectName("primary")
-        save_btn.clicked.connect(self.accept)
+        save_btn.clicked.connect(self._save)
         buttons.addWidget(save_btn)
         root.addLayout(buttons)
 
         self._switch_mode("emoji" if board.emoji else "color")
+
+    def _save(self) -> None:
+        if not self._name.text().strip():
+            QMessageBox.warning(self, "Nombre requerido", "Escribe un nombre para el pinboard.")
+            self._name.setFocus()
+            return
+        self.accept()
 
     def _switch_mode(self, mode: str) -> None:
         self._emoji_toggle.setChecked(mode == "emoji")
@@ -135,5 +152,5 @@ class PinboardIconEditor(QDialog):
         back to None if nothing was picked, color mode always has a value
         since a swatch is always selected."""
         if self._emoji_toggle.isChecked():
-            return {"emoji": self.selected_emoji, "color_hex": self.selected_color}
-        return {"emoji": None, "color_hex": self.selected_color}
+            return {"name": self._name.text().strip(), "emoji": self.selected_emoji, "color_hex": self.selected_color}
+        return {"name": self._name.text().strip(), "emoji": None, "color_hex": self.selected_color}

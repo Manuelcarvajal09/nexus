@@ -66,6 +66,20 @@ class TestRetention:
 
 
 class TestPinboards:
+    def test_pinboard_identity_and_order_are_fully_persistent(self, storage):
+        work = storage.create_pinboard("Work", color_hex="#007AFF", emoji="💼")
+        ideas = storage.create_pinboard("Ideas", color_hex="#FF9500", emoji="💡")
+        archive = storage.create_pinboard("Archive", color_hex="#8E8E93")
+
+        storage.update_pinboard(work.id, name="Client Work", color_hex="#34C759", emoji=None)
+        updated = storage.get_pinboard(work.id)
+        assert updated.name == "Client Work"
+        assert updated.color_hex == "#34C759"
+        assert updated.emoji is None
+
+        storage.reorder_pinboards([archive.id, work.id, ideas.id])
+        assert [board.id for board in storage.list_pinboards()] == [archive.id, work.id, ideas.id]
+
     def test_item_can_belong_to_multiple_pinboards(self, storage):
         item = storage.capture(kind="text", text_content="shared")
         b1 = storage.create_pinboard("Work")

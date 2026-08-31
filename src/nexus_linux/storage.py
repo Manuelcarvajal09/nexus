@@ -110,6 +110,7 @@ AVAILABLE_COLORS = [
     "#FF4D8D", "#00C853", "#FF6D00", "#00BCD4",
 ]
 SUGGESTED_EMOJI = ["📌", "⭐️", "🔥", "💡", "🎯", "📎", "🗂️", "🎨", "🚀", "❤️"]
+_UNSET = object()
 
 
 @dataclass
@@ -415,7 +416,7 @@ class StorageService:
         return self._row_to_pinboard(row)
 
     def update_pinboard(self, pinboard_id: int, name: Optional[str] = None,
-                         color_hex: Optional[str] = None, emoji: Optional[str] = None) -> None:
+                         color_hex: Optional[str] = None, emoji=_UNSET) -> None:
         board = self.get_pinboard(pinboard_id)
         if board is None:
             return
@@ -423,7 +424,7 @@ class StorageService:
             "UPDATE pinboards SET name = ?, color_hex = ?, emoji = ? WHERE id = ?",
             (name if name is not None else board.name,
              color_hex if color_hex is not None else board.color_hex,
-             emoji if emoji is not None else board.emoji,
+              board.emoji if emoji is _UNSET else emoji,
              pinboard_id),
         )
         self._conn.commit()

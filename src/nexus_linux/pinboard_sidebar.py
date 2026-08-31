@@ -180,10 +180,12 @@ class PinboardSidebar(QWidget):
 
     def _on_create(self) -> None:
         count = len(self._storage.list_pinboards())
-        name, ok = QInputDialog.getText(self, "Nuevo pinboard", "Nombre:", text=f"Pinboard {count + 1}")
-        if not ok or not name.strip():
-            return
-        self._storage.create_pinboard(name.strip())
+        board = self._storage.create_pinboard(f"Pinboard {count + 1}")
+        editor = PinboardIconEditor(board, self, creating=True)
+        if editor.exec() == PinboardIconEditor.DialogCode.Accepted:
+            self._storage.update_pinboard(board.id, **editor.result_kwargs())
+        else:
+            self._storage.delete_pinboard(board.id)
         self.refresh()
         self.changed.emit()
 
