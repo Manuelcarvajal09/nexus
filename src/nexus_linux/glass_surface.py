@@ -12,6 +12,13 @@ from . import styles
 
 
 class LiquidGlassSurface(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # This is a QWidget subclass, so opt in explicitly to stylesheet
+        # background painting.  Without it, non-Liquid themes lose their
+        # panel fill/radius while Liquid Glass happens to work via paintEvent.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
     def _sync_native_shape(self) -> None:
         # Never apply a window mask/region to a translucent Qt surface.  Both
         # mechanisms can desynchronize Windows' backing layer from Qt child
