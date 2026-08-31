@@ -73,7 +73,9 @@ class StackWindow(QWidget):
         self.setObjectName("overlayWindow")
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 8, 8, 8)
+        # Keep the painted glass and the acrylic HWND on the same contour.
+        # An 8px inset here was the visible second concentric frame.
+        outer.setContentsMargins(0, 0, 0, 0)
         self._surface = LiquidGlassSurface(self)
         self._surface.setObjectName("panelSurface")
         outer.addWidget(self._surface)

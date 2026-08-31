@@ -133,7 +133,11 @@ class TimelineWindow(QWidget):
         self._expanded = False
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 8, 8, 8)
+        # The native acrylic material is applied to the complete HWND.  An
+        # inset surface created a second, concentric frame 8px inside that
+        # native boundary.  The glass surface must occupy the HWND exactly;
+        # its own content layout below still supplies the interior padding.
+        outer.setContentsMargins(0, 0, 0, 0)
         self._surface = LiquidGlassSurface(self)
         self._surface.setObjectName("panelSurface")
         outer.addWidget(self._surface)
