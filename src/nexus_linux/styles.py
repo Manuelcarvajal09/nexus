@@ -186,10 +186,29 @@ QWidget {{
     font-size: 13px;
 }}
 
-QWidget#panelRoot {{
+QWidget#overlayWindow {{
+    background-color: transparent;
+    border: none;
+}}
+
+QWidget#panelSurface {{
     background-color: {t.bg_elevated};
     border: 1px solid {t.card_border_hover};
     border-radius: {t.radius_panel}px;
+}}
+
+QListView#timelineList, QListWidget#stackList {{
+    background-color: transparent;
+    border: none;
+    outline: none;
+    padding: 0px;
+}}
+
+QListView#timelineList::item {{
+    background-color: transparent;
+    border: none;
+    margin: 0px;
+    padding: 0px;
 }}
 
 QLabel#title {{

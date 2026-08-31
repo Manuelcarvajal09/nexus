@@ -59,14 +59,19 @@ class StackWindow(QWidget):
         self.setWindowTitle("Nexus Stack")
         # This remains a compact utility window, while providing enough room
         # for legible row metadata and controls at Erwin's Windows scaling.
-        self.resize(500, 620)
-        self.setMinimumWidth(440)
+        self.resize(620, 590)
+        self.setMinimumWidth(520)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setObjectName("panelRoot")
+        self.setObjectName("overlayWindow")
 
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        self._surface = QWidget(self)
+        self._surface.setObjectName("panelSurface")
+        outer.addWidget(self._surface)
+        root = QVBoxLayout(self._surface)
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(12)
 
@@ -120,9 +125,10 @@ class StackWindow(QWidget):
         root.addWidget(self._remaining_label)
 
         self._list = QListWidget()
-        self._list.setSpacing(0)
+        self._list.setObjectName("stackList")
+        self._list.setSpacing(6)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._list.setViewportMargins(0, 0, 10, 0)
+        self._list.setViewportMargins(4, 4, 10, 4)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._on_context_menu)
         self._list.currentItemChanged.connect(self._on_selection_changed)

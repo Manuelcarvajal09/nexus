@@ -126,10 +126,16 @@ class TimelineWindow(QWidget):
         # PySide6 docs/behavior for frameless top-level widgets, not just
         # theory: this is the standard attribute for a custom-shaped window.
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setObjectName("panelRoot")
+        self.setObjectName("overlayWindow")
         self._expanded = False
 
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        self._surface = QWidget(self)
+        self._surface.setObjectName("panelSurface")
+        outer.addWidget(self._surface)
+        root = QVBoxLayout(self._surface)
+        self._surface_layout = root
         root.setContentsMargins(16, 14, 16, 14)
         root.setSpacing(10)
 
@@ -195,6 +201,7 @@ class TimelineWindow(QWidget):
 
         self._model = TimelineModel(self)
         self._list = _TimelineListView(self._type_to_search, self._on_activated)
+        self._list.setObjectName("timelineList")
         self._list.setModel(self._model)
         self._delegate = ClipCardDelegate(self._list)
         self._delegate.set_preview_data(self._preview_data)
@@ -205,7 +212,8 @@ class TimelineWindow(QWidget):
         self._list.setMovement(QListView.Movement.Static)
         self._list.setResizeMode(QListView.ResizeMode.Adjust)
         self._list.setUniformItemSizes(True)
-        self._list.setSpacing(0)
+        self._list.setSpacing(2)
+        self._list.setViewportMargins(6, 4, 6, 4)
         # No visible scrollbar -- navigation is arrow-keys/wheel/trackpad,
         # matching the filmstrip feel from PASTE_PRODUCT_ANALYSIS.md §5
         # rather than looking like a file manager.
@@ -513,8 +521,10 @@ class TimelineWindow(QWidget):
         # hardcoded "chrome is about Npx" constant is what let the Quick
         # Shelf balloon well past its target in practice -- see the
         # docstring on self._chrome above and panel_geometry.py.
-        margins = self.layout().contentsMargins()
-        root_overhead = margins.top() + margins.bottom() + self.layout().spacing()
+        outer_margins = self.layout().contentsMargins()
+        margins = self._surface_layout.contentsMargins()
+        root_overhead = (outer_margins.top() + outer_margins.bottom() +
+                         margins.top() + margins.bottom() + self._surface_layout.spacing())
         chrome_height = self._chrome.sizeHint().height() + root_overhead
         geo = panel_geometry.calculate_panel_geometry(
             avail.x(), avail.y(), avail.width(), avail.height(),
