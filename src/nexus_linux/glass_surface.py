@@ -5,7 +5,7 @@ a directional specular rim, a dim inner edge, and restrained corner caustics.
 They make the surface read as shaped glass while remaining non-interactive.
 """
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QBitmap, QImage, QPainter, QPainterPath, QRadialGradient, QRegion
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QRadialGradient
 from PySide6.QtWidgets import QWidget
 
 from . import styles
@@ -13,25 +13,15 @@ from . import styles
 
 class LiquidGlassSurface(QWidget):
     def _sync_native_shape(self) -> None:
+        """Clear legacy per-pixel masks.
+
+        Windows acrylic windows use a layered backing surface; applying a
+        QBitmap mask to it can leave the backing surface visible while Qt's
+        child widgets are clipped away.  Rounded geometry is therefore owned
+        by the native DWM surface and the QSS panel, never by a bitmap mask.
+        """
         window = self.window()
-        if not styles.active_theme().liquid_glass:
-            window.clearMask()
-            return
-        # A raster alpha mask avoids the pointed/aliased corners produced by
-        # converting a sub-pixel QPainterPath directly to a polygon region.
-        image = QImage(self.size(), QImage.Format.Format_Mono)
-        image.fill(0)
-        mask_painter = QPainter(image)
-        mask_painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        mask_painter.setBrush(Qt.GlobalColor.white)
-        mask_painter.setPen(Qt.PenStyle.NoPen)
-        radius = float(styles.active_theme().radius_panel)
-        mask_painter.drawRoundedRect(QRectF(self.rect()).adjusted(0, 0, -1, -1), radius, radius)
-        mask_painter.end()
-        offset = self.mapTo(window, self.rect().topLeft())
-        region = QRegion(QBitmap.fromImage(image))
-        region.translate(offset)
-        window.setMask(region)
+        window.clearMask()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
