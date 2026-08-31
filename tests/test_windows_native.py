@@ -1,3 +1,5 @@
+import ctypes
+
 from nexus_linux import windows_paste
 from nexus_linux.windows_platform import FocusTarget
 from nexus_linux.windows_settings import DEFAULTS, vk_for
@@ -8,6 +10,19 @@ from nexus_linux import windows_platform
 def test_windows_hotkey_format_is_explicit_and_configurable():
     assert vk_for(DEFAULTS["panel_hotkey"]) == ord("V")
     assert vk_for("Ctrl+Shift+X") == ord("X")
+
+
+def test_win32_input_structure_has_native_size():
+    expected=40 if ctypes.sizeof(ctypes.c_void_p)==8 else 28
+    assert ctypes.sizeof(windows_paste.INPUT) == expected
+
+
+def test_nexus_synthetic_input_has_private_marker(monkeypatch):
+    captured=[]
+    monkeypatch.setattr(windows_paste.user32,"SendInput",lambda count,events,size: captured.extend(events) or count)
+    service=windows_paste.WindowsPasteService()
+    assert service._send_ctrl_v() is True
+    assert {int(event.ki.dwExtraInfo) for event in captured} == {windows_paste.NEXUS_INPUT_MARKER}
 
 
 def _target():

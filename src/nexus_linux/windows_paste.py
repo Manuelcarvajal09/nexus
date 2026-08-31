@@ -4,13 +4,21 @@ from ctypes import wintypes
 from enum import Enum
 from PySide6.QtCore import QMimeData, QObject, QTimer, QUrl, Signal
 from PySide6.QtGui import QGuiApplication, QImage
-from .windows_platform import VK_V, FocusTarget, capture_focus_target, restore_focus_target
+from .windows_platform import NEXUS_INPUT_MARKER, VK_V, FocusTarget, capture_focus_target, restore_focus_target
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 INPUT_KEYBOARD, KEYEVENTF_KEYUP = 1, 0x0002
 class KEYBDINPUT(ctypes.Structure):
     _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD), ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
-class INPUTUNION(ctypes.Union): _fields_ = [("ki", KEYBDINPUT)]
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG), ("mouseData", wintypes.DWORD), ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [("uMsg", wintypes.DWORD), ("wParamL", wintypes.WORD), ("wParamH", wintypes.WORD)]
+class INPUTUNION(ctypes.Union):
+    # The union must include its largest Win32 member.  With only KEYBDINPUT
+    # ctypes made INPUT 32 bytes on x64; Windows requires sizeof(INPUT)==40
+    # and rejected every synthetic Ctrl+V with SendInput returning zero.
+    _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT), ("hi", HARDWAREINPUT)]
 class INPUT(ctypes.Structure): _anonymous_ = ("u",); _fields_ = [("type", wintypes.DWORD), ("u", INPUTUNION)]
 user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 log = logging.getLogger("nexus.paste")
@@ -69,8 +77,12 @@ class WindowsPasteService(QObject):
         if self._attempts<10: QTimer.singleShot(15,self._restore_and_send); return
         self._finish(PasteResult.FOCUS_RESTORE_FAILED)
     def _send_ctrl_v(self):
-        events=(INPUT*4)(INPUT(INPUT_KEYBOARD,INPUTUNION(ki=KEYBDINPUT(0x11,0,0,0,0))),INPUT(INPUT_KEYBOARD,INPUTUNION(ki=KEYBDINPUT(VK_V,0,0,0,0))),INPUT(INPUT_KEYBOARD,INPUTUNION(ki=KEYBDINPUT(VK_V,0,KEYEVENTF_KEYUP,0,0))),INPUT(INPUT_KEYBOARD,INPUTUNION(ki=KEYBDINPUT(0x11,0,KEYEVENTF_KEYUP,0,0))))
-        return user32.SendInput(4,events,ctypes.sizeof(INPUT))==4
+        marker=NEXUS_INPUT_MARKER
+        events=(INPUT*4)(INPUT(INPUT_KEYBOARD,INPUTUNION(ki=KEYBDINPUT(0x11,0,0,0,marker))),INPUT(INPUT_KEYBOARD,INPUTUNION(ki=KEYBDINPUT(VK_V,0,0,0,marker))),INPUT(INPUT_KEYBOARD,INPUTUNION(ki=KEYBDINPUT(VK_V,0,KEYEVENTF_KEYUP,0,marker))),INPUT(INPUT_KEYBOARD,INPUTUNION(ki=KEYBDINPUT(0x11,0,KEYEVENTF_KEYUP,0,marker))))
+        sent=int(user32.SendInput(4,events,ctypes.sizeof(INPUT)))
+        if sent != 4:
+            log.error("sendinput.failed sent=%s expected=4 cb_size=%s winerror=%s", sent, ctypes.sizeof(INPUT), ctypes.get_last_error())
+        return sent==4
     def synthetic_paste(self):
         return bool(restore_focus_target(self._target,os.getpid()) and self._send_ctrl_v())
     def _report_immediate_failure(self,result,completion):

@@ -11,6 +11,11 @@ WM_HOTKEY = 0x0312
 WM_NCLBUTTONDOWN, HTCAPTION = 0x00A1, 2
 MOD_CONTROL, MOD_SHIFT, MOD_NOREPEAT = 0x0002, 0x0004, 0x4000
 VK_C, VK_V, SW_RESTORE = 0x43, 0x56, 9
+# dwExtraInfo signature attached only to keyboard input synthesized by Nexus.
+# The low-level Stack watcher ignores this exact value rather than rejecting
+# every LLKHF_INJECTED event (which would also reject accessibility tools,
+# remappers, on-screen keyboards and native test automation).
+NEXUS_INPUT_MARKER = 0x4E45585553
 
 class GUITHREADINFO(ctypes.Structure):
     _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD), ("hwndActive", wintypes.HWND), ("hwndFocus", wintypes.HWND), ("hwndCapture", wintypes.HWND), ("hwndMenuOwner", wintypes.HWND), ("hwndMoveSize", wintypes.HWND), ("hwndCaret", wintypes.HWND), ("rcCaret", wintypes.RECT)]
