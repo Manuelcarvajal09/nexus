@@ -184,7 +184,10 @@ def apply_liquid_glass_backdrop(hwnd: int, enabled: bool) -> bool:
     # through the backdrop's hue instead of replacing it with charcoal gray.
     policy = ACCENTPOLICY(
         ACCENT_ENABLE_ACRYLICBLURBEHIND if enabled else ACCENT_DISABLED,
-        2 if enabled else 0,
+        # No compositor border: Nexus paints its own rounded refractive rim.
+        # AccentFlags=2 asks Windows for a second rectangular client-edge,
+        # which is the duplicate outline visible around the rounded panel.
+        0,
         0x18120D08 if enabled else 0,
         0,
     )

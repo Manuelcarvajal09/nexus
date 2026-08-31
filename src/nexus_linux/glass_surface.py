@@ -5,14 +5,33 @@ a directional specular rim, a dim inner edge, and restrained corner caustics.
 They make the surface read as shaped glass while remaining non-interactive.
 """
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QPolygon, QRadialGradient, QRegion
 from PySide6.QtWidgets import QWidget
 
 from . import styles
 
 
 class LiquidGlassSurface(QWidget):
+    def _sync_native_shape(self) -> None:
+        window = self.window()
+        if not styles.active_theme().liquid_glass:
+            window.clearMask()
+            return
+        local_rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        path = QPainterPath()
+        radius = float(styles.active_theme().radius_panel)
+        path.addRoundedRect(local_rect, radius, radius)
+        polygon = QPolygon(path.toFillPolygon().toPolygon())
+        offset = self.mapTo(window, self.rect().topLeft())
+        polygon.translate(offset)
+        window.setMask(QRegion(polygon))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._sync_native_shape()
+
     def paintEvent(self, event) -> None:
+        self._sync_native_shape()
         super().paintEvent(event)
         theme = styles.active_theme()
         if not theme.liquid_glass:
