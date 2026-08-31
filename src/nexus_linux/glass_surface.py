@@ -13,18 +13,17 @@ from . import styles
 
 class LiquidGlassSurface(QWidget):
     def _sync_native_shape(self) -> None:
-        """Clear legacy per-pixel masks.
-
-        Windows acrylic windows use a layered backing surface; applying a
-        QBitmap mask to it can leave the backing surface visible while Qt's
-        child widgets are clipped away.  Rounded geometry is therefore owned
-        by the native DWM surface and the QSS panel, never by a bitmap mask.
-        """
-        window = self.window()
-        window.clearMask()
+        # Never apply a window mask/region to a translucent Qt surface.  Both
+        # mechanisms can desynchronize Windows' backing layer from Qt child
+        # painting. The rounded panel itself is rendered by QSS.
+        self.window().clearMask()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        self._sync_native_shape()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
         self._sync_native_shape()
 
     def paintEvent(self, event) -> None:

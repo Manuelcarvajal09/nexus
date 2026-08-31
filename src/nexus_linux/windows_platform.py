@@ -65,9 +65,9 @@ DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 DWMWA_WINDOW_CORNER_PREFERENCE = 33
 DWMWA_BORDER_COLOR = 34
 DWMWA_SYSTEMBACKDROP_TYPE = 38
-# Native DWM is the sole owner of the outer rounded shape.  Qt never applies
-# a bitmap window mask to an acrylic surface (it can clip child rendering).
-DWMWCP_ROUND = 2
+# The transparent Qt window paints the only rounded surface.  A native DWM
+# corner radius produces a second, differently sized curve around it.
+DWMWCP_DONOTROUND = 1
 DWMSBT_AUTO, DWMSBT_TRANSIENTWINDOW = 0, 3
 DWMWA_COLOR_DEFAULT, DWMWA_COLOR_NONE = 0xFFFFFFFF, 0xFFFFFFFE
 
@@ -170,7 +170,7 @@ def apply_liquid_glass_backdrop(hwnd: int, enabled: bool) -> bool:
     if not hwnd or not user32.IsWindow(hwnd):
         return False
     dark = ctypes.c_int(1)
-    corner = ctypes.c_int(DWMWCP_ROUND)
+    corner = ctypes.c_int(DWMWCP_DONOTROUND)
     border_color = ctypes.c_uint(DWMWA_COLOR_NONE if enabled else DWMWA_COLOR_DEFAULT)
     # Reset the system-selected material first: its dark-mode tint is much too
     # gray for Liquid Glass and destroys the colors that should pass through.
@@ -190,22 +190,21 @@ def apply_liquid_glass_backdrop(hwnd: int, enabled: bool) -> bool:
         return dwm_result == 0
     setter.argtypes = [wintypes.HWND, ctypes.POINTER(WINDOWCOMPOSITIONATTRIBDATA)]
     setter.restype = wintypes.BOOL
-    # GradientColor is ABGR.  Alpha 0x18 keeps the acrylic blur while passing
-    # through the backdrop's hue instead of replacing it with charcoal gray.
+    # Do not apply acrylic to the complete HWND: it creates an extra
+    # rectangular backing layer outside Nexus's rounded Qt panel.
     policy = ACCENTPOLICY(
-        ACCENT_ENABLE_ACRYLICBLURBEHIND if enabled else ACCENT_DISABLED,
+        ACCENT_DISABLED,
         # No compositor border: Nexus paints its own rounded refractive rim.
         # AccentFlags=2 asks Windows for a second rectangular client-edge,
         # which is the duplicate outline visible around the rounded panel.
         0,
-        0x18120D08 if enabled else 0,
+        0,
         0,
     )
     data = WINDOWCOMPOSITIONATTRIBDATA(
         WCA_ACCENT_POLICY, ctypes.cast(ctypes.byref(policy), ctypes.c_void_p), ctypes.sizeof(policy)
     )
     return bool(setter(hwnd, ctypes.byref(data)))
-
 def acquire_single_instance_mutex(name="Local\\NexusWindowsErwin"):
     handle = kernel32.CreateMutexW(None, False, name)
     if not handle or ctypes.get_last_error() == 183:
