@@ -57,15 +57,15 @@ PRESETS: dict[str, Theme] = {
         display_name="Liquid Glass · macOS 27",
         # Neutral glass deliberately has almost no inherent hue.  The cool
         # cast comes from reflected/specular layers rather than a blue fill.
-        bg="rgba(13, 17, 24, 0.72)", bg_elevated="rgba(32, 38, 49, 0.64)",
-        card_bg="rgba(255, 255, 255, 0.075)", card_bg_hover="rgba(255, 255, 255, 0.135)",
-        card_border="rgba(255, 255, 255, 0.16)", card_border_hover="rgba(255, 255, 255, 0.34)",
-        accent="#78B9FF", accent_dim="rgba(120, 185, 255, 0.20)", accent_ink="#07121E",
+        bg="rgba(7, 12, 20, 0.18)", bg_elevated="rgba(30, 42, 58, 0.28)",
+        card_bg="rgba(235, 247, 255, 0.105)", card_bg_hover="rgba(240, 250, 255, 0.18)",
+        card_border="rgba(255, 255, 255, 0.24)", card_border_hover="rgba(255, 255, 255, 0.52)",
+        accent="#82C7FF", accent_dim="rgba(103, 181, 255, 0.28)", accent_ink="#06121E",
         secondary="#B8DCFF",
         text_primary="#F7FAFF", text_secondary="rgba(238, 245, 255, 0.76)",
         text_tertiary="rgba(225, 235, 248, 0.52)", danger="#FF8B91",
         font_family='"Segoe UI Variable", "SF Pro Display", "Inter", sans-serif',
-        radius_panel=26, radius_card=18, radius_chip=15,
+        radius_panel=32, radius_card=24, radius_chip=18,
         glow=False, liquid_glass=True,
     ),
     "midnight_teal": Theme(
@@ -210,15 +210,16 @@ def qss() -> str:
     BG, CARD_BG, ACCENT, ACCENT_DIM = t.bg, t.card_bg, t.accent, t.accent_dim
     TEXT_SECONDARY, TEXT_TERTIARY = t.text_secondary, t.text_tertiary
 
+    widget_fill = "transparent" if t.liquid_glass else t.bg
     panel_fill = (
         "qlineargradient(x1:0, y1:0, x2:0.92, y2:1, "
-        "stop:0 rgba(255, 255, 255, 0.20), stop:0.055 rgba(255, 255, 255, 0.105), "
-        "stop:0.42 rgba(34, 41, 54, 0.68), stop:1 rgba(12, 16, 24, 0.82))"
+        "stop:0 rgba(255, 255, 255, 0.12), stop:0.045 rgba(255, 255, 255, 0.055), "
+        "stop:0.46 rgba(70, 102, 135, 0.18), stop:1 rgba(8, 15, 26, 0.34))"
         if t.liquid_glass else t.bg_elevated
     )
     card_fill = (
-        "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.13), "
-        "stop:0.10 rgba(255, 255, 255, 0.075), stop:1 rgba(255, 255, 255, 0.035))"
+        "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.19), "
+        "stop:0.10 rgba(255, 255, 255, 0.105), stop:1 rgba(210, 235, 255, 0.055))"
         if t.liquid_glass else t.card_bg
     )
     card_hover_fill = (
@@ -232,7 +233,7 @@ def qss() -> str:
 }}
 
 QWidget {{
-    background-color: {t.bg};
+    background-color: {widget_fill};
     color: {t.text_primary};
     font-size: 13px;
 }}

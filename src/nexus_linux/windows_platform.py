@@ -67,6 +67,24 @@ DWMWA_SYSTEMBACKDROP_TYPE = 38
 DWMWCP_ROUND = 2
 DWMSBT_AUTO, DWMSBT_TRANSIENTWINDOW = 0, 3
 
+class ACCENTPOLICY(ctypes.Structure):
+    _fields_ = [
+        ("AccentState", ctypes.c_int),
+        ("AccentFlags", ctypes.c_int),
+        ("GradientColor", wintypes.DWORD),
+        ("AnimationId", ctypes.c_int),
+    ]
+
+class WINDOWCOMPOSITIONATTRIBDATA(ctypes.Structure):
+    _fields_ = [
+        ("Attrib", ctypes.c_int),
+        ("pvData", ctypes.c_void_p),
+        ("cbData", ctypes.c_size_t),
+    ]
+
+WCA_ACCENT_POLICY = 19
+ACCENT_DISABLED, ACCENT_ENABLE_ACRYLICBLURBEHIND = 0, 4
+
 def foreground_window() -> int:
     return int(user32.GetForegroundWindow() or 0)
 
@@ -149,13 +167,31 @@ def apply_liquid_glass_backdrop(hwnd: int, enabled: bool) -> bool:
         return False
     dark = ctypes.c_int(1)
     corner = ctypes.c_int(DWMWCP_ROUND)
-    backdrop = ctypes.c_int(DWMSBT_TRANSIENTWINDOW if enabled else DWMSBT_AUTO)
+    # Reset the system-selected material first: its dark-mode tint is much too
+    # gray for Liquid Glass and destroys the colors that should pass through.
+    backdrop = ctypes.c_int(DWMSBT_AUTO)
     dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(dark), ctypes.sizeof(dark))
     dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ctypes.byref(corner), ctypes.sizeof(corner))
-    result = dwmapi.DwmSetWindowAttribute(
+    dwm_result = dwmapi.DwmSetWindowAttribute(
         hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ctypes.byref(backdrop), ctypes.sizeof(backdrop)
     )
-    return result == 0
+    setter = getattr(user32, "SetWindowCompositionAttribute", None)
+    if setter is None:
+        return dwm_result == 0
+    setter.argtypes = [wintypes.HWND, ctypes.POINTER(WINDOWCOMPOSITIONATTRIBDATA)]
+    setter.restype = wintypes.BOOL
+    # GradientColor is ABGR.  Alpha 0x18 keeps the acrylic blur while passing
+    # through the backdrop's hue instead of replacing it with charcoal gray.
+    policy = ACCENTPOLICY(
+        ACCENT_ENABLE_ACRYLICBLURBEHIND if enabled else ACCENT_DISABLED,
+        2 if enabled else 0,
+        0x18120D08 if enabled else 0,
+        0,
+    )
+    data = WINDOWCOMPOSITIONATTRIBDATA(
+        WCA_ACCENT_POLICY, ctypes.cast(ctypes.byref(policy), ctypes.c_void_p), ctypes.sizeof(policy)
+    )
+    return bool(setter(hwnd, ctypes.byref(data)))
 
 def acquire_single_instance_mutex(name="Local\\NexusWindowsErwin"):
     handle = kernel32.CreateMutexW(None, False, name)

@@ -37,6 +37,17 @@ class LiquidGlassSurface(QWidget):
         painter.setPen(QPen(rim, 1.35))
         painter.drawPath(outline)
 
+        # A broader translucent fringe bends the colors immediately beside
+        # the rim.  Its asymmetry is what makes a capsule read as a lens
+        # instead of a frosted rectangle with a white stroke.
+        fringe = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        fringe.setColorAt(0.0, QColor(220, 242, 255, 55))
+        fringe.setColorAt(0.42, QColor(125, 196, 255, 15))
+        fringe.setColorAt(0.78, QColor(255, 255, 255, 8))
+        fringe.setColorAt(1.0, QColor(0, 7, 18, 48))
+        painter.setPen(QPen(fringe, 3.6))
+        painter.drawPath(outline)
+
         inner = QPainterPath()
         inner_rect = rect.adjusted(2.2, 2.2, -2.2, -2.2)
         inner.addRoundedRect(inner_rect, max(1.0, radius - 2.2), max(1.0, radius - 2.2))
@@ -52,4 +63,3 @@ class LiquidGlassSurface(QWidget):
             glow.setColorAt(0, color)
             glow.setColorAt(1, QColor(255, 255, 255, 0))
             painter.fillPath(outline, glow)
-
