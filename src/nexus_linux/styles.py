@@ -57,13 +57,15 @@ PRESETS: dict[str, Theme] = {
         display_name="Liquid Glass · macOS 27",
         # Neutral glass deliberately has almost no inherent hue.  The cool
         # cast comes from reflected/specular layers rather than a blue fill.
-        bg="rgba(7, 12, 20, 0.38)", bg_elevated="rgba(30, 42, 58, 0.48)",
-        card_bg="rgba(235, 247, 255, 0.13)", card_bg_hover="rgba(240, 250, 255, 0.21)",
-        card_border="rgba(255, 255, 255, 0.24)", card_border_hover="rgba(255, 255, 255, 0.52)",
-        accent="#82C7FF", accent_dim="rgba(103, 181, 255, 0.28)", accent_ink="#06121E",
+        # QSS uses integer alpha (0-255). Decimal alpha made the translucent
+        # panel nearly invisible on Windows despite looking correct to QColor.
+        bg="rgba(7, 12, 20, 133)", bg_elevated="rgba(30, 42, 58, 158)",
+        card_bg="rgba(235, 247, 255, 46)", card_bg_hover="rgba(240, 250, 255, 69)",
+        card_border="rgba(255, 255, 255, 61)", card_border_hover="rgba(255, 255, 255, 133)",
+        accent="#82C7FF", accent_dim="rgba(103, 181, 255, 71)", accent_ink="#06121E",
         secondary="#B8DCFF",
-        text_primary="#F7FAFF", text_secondary="rgba(238, 245, 255, 0.76)",
-        text_tertiary="rgba(225, 235, 248, 0.52)", danger="#FF8B91",
+        text_primary="#F7FAFF", text_secondary="rgba(238, 245, 255, 194)",
+        text_tertiary="rgba(225, 235, 248, 133)", danger="#FF8B91",
         font_family='"Segoe UI Variable", "SF Pro Display", "Inter", sans-serif',
         radius_panel=32, radius_card=24, radius_chip=18,
         glow=False, liquid_glass=True,
@@ -213,8 +215,8 @@ def qss() -> str:
     widget_fill = "transparent" if t.liquid_glass else t.bg
     panel_fill = (
         "qlineargradient(x1:0, y1:0, x2:0.92, y2:1, "
-        "stop:0 rgba(255, 255, 255, 0.18), stop:0.045 rgba(255, 255, 255, 0.09), "
-        "stop:0.46 rgba(70, 102, 135, 0.30), stop:1 rgba(8, 15, 26, 0.58))"
+        "stop:0 rgba(255, 255, 255, 56), stop:0.045 rgba(255, 255, 255, 33), "
+        "stop:0.46 rgba(70, 102, 135, 97), stop:1 rgba(8, 15, 26, 196))"
         if t.liquid_glass else t.bg_elevated
     )
     card_fill = (
