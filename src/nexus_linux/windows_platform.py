@@ -65,7 +65,10 @@ DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 DWMWA_WINDOW_CORNER_PREFERENCE = 33
 DWMWA_BORDER_COLOR = 34
 DWMWA_SYSTEMBACKDROP_TYPE = 38
-DWMWCP_ROUND = 2
+# Let Qt's mask be the sole source of corner geometry.  DWM_ROUND adds its
+# own smaller top-corner radius, which visibly differs from the lower corners
+# on frameless acrylic windows.
+DWMWCP_DONOTROUND = 1
 DWMSBT_AUTO, DWMSBT_TRANSIENTWINDOW = 0, 3
 DWMWA_COLOR_DEFAULT, DWMWA_COLOR_NONE = 0xFFFFFFFF, 0xFFFFFFFE
 
@@ -168,7 +171,7 @@ def apply_liquid_glass_backdrop(hwnd: int, enabled: bool) -> bool:
     if not hwnd or not user32.IsWindow(hwnd):
         return False
     dark = ctypes.c_int(1)
-    corner = ctypes.c_int(DWMWCP_ROUND)
+    corner = ctypes.c_int(DWMWCP_DONOTROUND)
     border_color = ctypes.c_uint(DWMWA_COLOR_NONE if enabled else DWMWA_COLOR_DEFAULT)
     # Reset the system-selected material first: its dark-mode tint is much too
     # gray for Liquid Glass and destroys the colors that should pass through.
