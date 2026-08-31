@@ -2,6 +2,7 @@ from nexus_linux import windows_paste
 from nexus_linux.windows_platform import FocusTarget
 from nexus_linux.windows_settings import DEFAULTS, vk_for
 from nexus_linux.windows_paste import PasteResult
+from nexus_linux import windows_platform
 
 
 def test_windows_hotkey_format_is_explicit_and_configurable():
@@ -60,3 +61,12 @@ def test_sendinput_failure_reports_failure_and_keeps_callback_false(qapp, monkey
     monkeypatch.setattr(windows_paste.QTimer,"singleShot",lambda delay,callback: callback())
     assert service.paste_item(item,Overlay(),lambda ok: results.append(ok)) is True
     assert results == [False]
+
+
+def test_native_window_drag_uses_windows_caption_loop(monkeypatch):
+    calls=[]
+    monkeypatch.setattr(windows_platform.user32,"IsWindow",lambda hwnd: True)
+    monkeypatch.setattr(windows_platform.user32,"ReleaseCapture",lambda: calls.append("release") or True)
+    monkeypatch.setattr(windows_platform.user32,"SendMessageW",lambda hwnd,msg,wparam,lparam: calls.append((hwnd,msg,wparam,lparam)) or 0)
+    assert windows_platform.begin_native_window_drag(123) is True
+    assert calls == ["release",(123,windows_platform.WM_NCLBUTTONDOWN,windows_platform.HTCAPTION,0)]

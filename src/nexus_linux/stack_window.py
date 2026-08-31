@@ -37,6 +37,9 @@ from .row_widget import ClipRowWidget
 from .stack import ClipStack
 from . import styles
 
+if sys.platform == "win32":
+    from .windows_platform import begin_native_window_drag
+
 RESOURCES_DIR = Path(__file__).resolve().parent.parent.parent / "resources"
 # Kept in sync with timeline_window.DISMISS_DEBOUNCE_MS by convention, not
 # import, to avoid a window-module-to-window-module dependency for one
@@ -366,6 +369,11 @@ class StackWindow(QWidget):
     def eventFilter(self, watched, event) -> bool:
         if watched in self._drag_sources:
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                if sys.platform == "win32":
+                    # Use the OS caption drag loop. It keeps tracking even
+                    # when the pointer leaves this label/header child.
+                    begin_native_window_drag(int(self.winId()))
+                    return True
                 self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                 watched.setCursor(Qt.CursorShape.ClosedHandCursor)
                 return True

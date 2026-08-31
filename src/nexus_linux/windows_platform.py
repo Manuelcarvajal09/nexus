@@ -8,6 +8,7 @@ from dataclasses import dataclass
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 WM_HOTKEY = 0x0312
+WM_NCLBUTTONDOWN, HTCAPTION = 0x00A1, 2
 MOD_CONTROL, MOD_SHIFT, MOD_NOREPEAT = 0x0002, 0x0004, 0x4000
 VK_C, VK_V, SW_RESTORE = 0x43, 0x56, 9
 
@@ -33,6 +34,10 @@ user32.IsIconic.argtypes = [wintypes.HWND]
 user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_uint, ctypes.c_uint]
 user32.UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.ReleaseCapture.argtypes = []
+user32.ReleaseCapture.restype = wintypes.BOOL
+user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+user32.SendMessageW.restype = ctypes.c_ssize_t
 kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
 kernel32.CreateMutexW.restype = wintypes.HANDLE
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -101,6 +106,20 @@ def register_hotkey(hwnd: int, identifier: int, virtual_key: int) -> bool:
 
 def unregister_hotkey(hwnd: int, identifier: int) -> None:
     user32.UnregisterHotKey(hwnd, identifier)
+
+def begin_native_window_drag(hwnd: int) -> bool:
+    """Hand a frameless window move to Windows' native caption loop.
+
+    Qt mouse-move delivery is not reliable once the pointer crosses from a
+    label to another child widget.  HTCAPTION makes the OS move the window
+    exactly like a normal title bar while preserving custom chrome and the
+    always-on-top flag.
+    """
+    if not hwnd or not user32.IsWindow(hwnd):
+        return False
+    user32.ReleaseCapture()
+    user32.SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0)
+    return True
 
 def acquire_single_instance_mutex(name="Local\\NexusWindowsErwin"):
     handle = kernel32.CreateMutexW(None, False, name)
