@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 
 from . import panel_geometry, styles, type_detection
 from .paste_service import POST_HIDE_PASTE_DELAY_MS, PasteService
+from .glass_surface import LiquidGlassSurface
 from .preview_service import PreviewService
 from .storage import StorageService
 from .timeline_delegate import CARD_HEIGHT, ClipCardDelegate
@@ -133,7 +134,7 @@ class TimelineWindow(QWidget):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 8, 8, 8)
-        self._surface = QWidget(self)
+        self._surface = LiquidGlassSurface(self)
         self._surface.setObjectName("panelSurface")
         outer.addWidget(self._surface)
         root = QVBoxLayout(self._surface)

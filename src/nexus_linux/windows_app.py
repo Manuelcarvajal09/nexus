@@ -15,7 +15,10 @@ from .storage import StorageService
 from .timeline_window import TimelineWindow
 from .windows_clipboard import WindowsClipboardMonitor
 from .windows_paste import WindowsPasteService
-from .windows_platform import WM_HOTKEY, acquire_single_instance_mutex, register_hotkey, release_handle, unregister_hotkey
+from .windows_platform import (
+    WM_HOTKEY, acquire_single_instance_mutex, apply_liquid_glass_backdrop,
+    register_hotkey, release_handle, unregister_hotkey,
+)
 from .windows_settings import load_settings, vk_for
 from .windows_keyboard import WindowsPasteWatcher
 
@@ -59,6 +62,12 @@ def main():
     paste = WindowsPasteService(on_write=monitor.suppress_next_change)
     preview = PreviewService(storage, parent=app); library = MainWindow(storage, paste); timeline = TimelineWindow(storage, paste, preview)
     stack = ClipStack(storage, paste); stack.load_persisted(); stack_window = StackWindow(stack)
+    themed_windows = (library, timeline, stack_window)
+    def apply_native_theme_material():
+        enabled = styles.active_theme().liquid_glass
+        for window in themed_windows:
+            apply_liquid_glass_backdrop(int(window.winId()), enabled)
+    apply_native_theme_material()
     timeline.manage_pinboards_requested.connect(library.show_and_focus)
     paste_watcher = WindowsPasteWatcher(app)
     def consume_real_stack_paste():
@@ -103,6 +112,7 @@ def main():
     theme_actions = {}
     def apply_theme(key):
         styles.set_active_theme(key); styles.clear_icon_cache(); app.setStyleSheet(styles.qss())
+        apply_native_theme_material()
         for action, action_key in theme_actions.items(): action.setChecked(action_key == key)
         timeline.set_theme_selection(key)
         library.refresh(); library.refresh_sidebar_icons(); timeline.refresh(); stack_window.refresh()

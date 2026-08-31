@@ -1,5 +1,7 @@
 import json
 
+from PySide6.QtGui import QColor
+
 from nexus_linux import styles
 
 
@@ -22,3 +24,26 @@ def test_all_exposed_theme_choices_have_complete_presets():
         theme = styles.PRESETS[key]
         assert label == theme.display_name
         assert theme.bg and theme.card_bg and theme.accent and theme.text_primary
+
+
+def test_liquid_glass_is_exposed_and_has_optical_composition():
+    keys = [key for key, _label in styles.theme_choices()]
+    assert keys[0] == "liquid_glass"
+    assert styles.PRESETS["liquid_glass"].liquid_glass is True
+
+    previous = styles._active_key
+    try:
+        styles._active_key = "liquid_glass"
+        sheet = styles.qss()
+        assert "qlineargradient" in sheet
+        assert "rgba(255, 255, 255, 0.20)" in sheet
+        assert "border-radius: 26px" in sheet
+    finally:
+        styles._active_key = previous
+
+
+def test_qcolor_parses_qss_rgba_without_turning_black():
+    color = styles.qcolor("rgba(255, 255, 255, 0.075)")
+    assert color.isValid()
+    assert color.red() == color.green() == color.blue() == 255
+    assert color.alpha() == 19

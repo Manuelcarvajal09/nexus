@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from .paste_service import POST_HIDE_PASTE_DELAY_MS
+from .glass_surface import LiquidGlassSurface
 from .row_widget import ClipRowWidget
 from .stack import ClipStack
 from . import styles
@@ -73,7 +74,7 @@ class StackWindow(QWidget):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 8, 8, 8)
-        self._surface = QWidget(self)
+        self._surface = LiquidGlassSurface(self)
         self._surface.setObjectName("panelSurface")
         outer.addWidget(self._surface)
         root = QVBoxLayout(self._surface)

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
 WM_HOTKEY = 0x0312
 WM_NCLBUTTONDOWN, HTCAPTION = 0x00A1, 2
 MOD_CONTROL, MOD_SHIFT, MOD_NOREPEAT = 0x0002, 0x0004, 0x4000
@@ -53,6 +54,18 @@ kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD,
 user32.RegisterClipboardFormatW.argtypes = [wintypes.LPCWSTR]
 user32.RegisterClipboardFormatW.restype = wintypes.UINT
 user32.IsClipboardFormatAvailable.argtypes = [wintypes.UINT]
+dwmapi.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+dwmapi.DwmSetWindowAttribute.restype = ctypes.c_long
+
+# Public Windows 11 DWM attributes.  The transient-window backdrop is the
+# closest native Windows material to the blurred, content-aware control layer
+# used by Liquid Glass; it is intentionally paired with Nexus's own optical
+# rim/highlight composition in styles.py rather than presented as the design.
+DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+DWMWA_WINDOW_CORNER_PREFERENCE = 33
+DWMWA_SYSTEMBACKDROP_TYPE = 38
+DWMWCP_ROUND = 2
+DWMSBT_AUTO, DWMSBT_TRANSIENTWINDOW = 0, 3
 
 def foreground_window() -> int:
     return int(user32.GetForegroundWindow() or 0)
@@ -125,6 +138,24 @@ def begin_native_window_drag(hwnd: int) -> bool:
     user32.ReleaseCapture()
     user32.SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0)
     return True
+
+def apply_liquid_glass_backdrop(hwnd: int, enabled: bool) -> bool:
+    """Enable native blur/material and rounded composition where supported.
+
+    Unsupported Windows builds return an HRESULT; that is a safe no-op and
+    the Qt-painted glass layers remain fully usable.
+    """
+    if not hwnd or not user32.IsWindow(hwnd):
+        return False
+    dark = ctypes.c_int(1)
+    corner = ctypes.c_int(DWMWCP_ROUND)
+    backdrop = ctypes.c_int(DWMSBT_TRANSIENTWINDOW if enabled else DWMSBT_AUTO)
+    dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(dark), ctypes.sizeof(dark))
+    dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ctypes.byref(corner), ctypes.sizeof(corner))
+    result = dwmapi.DwmSetWindowAttribute(
+        hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ctypes.byref(backdrop), ctypes.sizeof(backdrop)
+    )
+    return result == 0
 
 def acquire_single_instance_mutex(name="Local\\NexusWindowsErwin"):
     handle = kernel32.CreateMutexW(None, False, name)

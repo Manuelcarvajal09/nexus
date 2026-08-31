@@ -1,10 +1,10 @@
 """Multi-theme visual system, adapted from Nexus's ThemeSpec/ThemeManager
 (Models/Theme.swift, Services/ThemeManager.swift, Views/Themes/*.swift).
 
-The original ships 5 themes: Liquid Glass (default), Minimalista, Material 3
-Expressive ("midnight teal"), Storem, Tech Neon. Liquid Glass is skipped here
--- true backdrop blur ("ultraThinMaterial") has no equivalent in Qt Widgets
-without fighting KWin's blur effect per-window -- the other four are real,
+The original ships 5 themes: Liquid Glass, Minimalista, Material 3
+Expressive ("midnight teal"), Storem, Tech Neon.  Liquid Glass uses a
+layered translucent composition here and asks Windows DWM for its native
+backdrop material; the other four are real,
 selectable palettes (Theme dataclass + PRESETS below), matching the
 original's actual hex values, fonts, and radii where they translate to Qt
 (QSS has no per-card variable corner radii or ambient glow the way SwiftUI
@@ -15,6 +15,7 @@ from the tray menu (see app.py); qss() is applied at the QApplication level
 so every window updates the instant it changes, no per-widget bookkeeping."""
 
 import json
+import re
 from dataclasses import dataclass
 
 from PySide6.QtCore import QSize, Qt
@@ -47,9 +48,26 @@ class Theme:
     radius_card: int
     radius_chip: int
     glow: bool = False
+    liquid_glass: bool = False
 
 
 PRESETS: dict[str, Theme] = {
+    "liquid_glass": Theme(
+        key="liquid_glass",
+        display_name="Liquid Glass · macOS 27",
+        # Neutral glass deliberately has almost no inherent hue.  The cool
+        # cast comes from reflected/specular layers rather than a blue fill.
+        bg="rgba(13, 17, 24, 0.72)", bg_elevated="rgba(32, 38, 49, 0.64)",
+        card_bg="rgba(255, 255, 255, 0.075)", card_bg_hover="rgba(255, 255, 255, 0.135)",
+        card_border="rgba(255, 255, 255, 0.16)", card_border_hover="rgba(255, 255, 255, 0.34)",
+        accent="#78B9FF", accent_dim="rgba(120, 185, 255, 0.20)", accent_ink="#07121E",
+        secondary="#B8DCFF",
+        text_primary="#F7FAFF", text_secondary="rgba(238, 245, 255, 0.76)",
+        text_tertiary="rgba(225, 235, 248, 0.52)", danger="#FF8B91",
+        font_family='"Segoe UI Variable", "SF Pro Display", "Inter", sans-serif',
+        radius_panel=26, radius_card=18, radius_chip=15,
+        glow=False, liquid_glass=True,
+    ),
     "midnight_teal": Theme(
         key="midnight_teal",
         display_name="Material 3 (midnight teal)",
@@ -152,7 +170,7 @@ def set_active_theme(key: str) -> None:
 
 def theme_choices() -> list[tuple[str, str]]:
     """(key, display_name) pairs in a stable, deliberate order."""
-    order = ["midnight_teal", "minimalist", "storem", "tech_neon"]
+    order = ["liquid_glass", "midnight_teal", "minimalist", "storem", "tech_neon"]
     return [(k, PRESETS[k].display_name) for k in order]
 
 
@@ -169,12 +187,45 @@ TEXT_TERTIARY = ""
 RADIUS_BADGE = 17  # half of row_widget.BADGE_SIZE (34) -- a true circle chip
 
 
+def qcolor(value: str) -> QColor:
+    """Parse both Qt colors and the CSS rgba() notation used by QSS.
+
+    QColor itself does not accept rgba(r,g,b,a), while QSS does.  Keeping one
+    parser prevents custom-painted cards from silently becoming opaque black.
+    """
+    match = re.fullmatch(
+        r"rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)", value
+    )
+    if match:
+        red, green, blue = (int(match.group(i)) for i in range(1, 4))
+        raw_alpha = float(match.group(4))
+        alpha = round(raw_alpha * 255) if raw_alpha <= 1 else round(raw_alpha)
+        return QColor(red, green, blue, max(0, min(255, alpha)))
+    return QColor(value)
+
+
 def qss() -> str:
     t = active_theme()
     global BG, CARD_BG, ACCENT, ACCENT_DIM, TEXT_SECONDARY, TEXT_TERTIARY
     BG, CARD_BG, ACCENT, ACCENT_DIM = t.bg, t.card_bg, t.accent, t.accent_dim
     TEXT_SECONDARY, TEXT_TERTIARY = t.text_secondary, t.text_tertiary
 
+    panel_fill = (
+        "qlineargradient(x1:0, y1:0, x2:0.92, y2:1, "
+        "stop:0 rgba(255, 255, 255, 0.20), stop:0.055 rgba(255, 255, 255, 0.105), "
+        "stop:0.42 rgba(34, 41, 54, 0.68), stop:1 rgba(12, 16, 24, 0.82))"
+        if t.liquid_glass else t.bg_elevated
+    )
+    card_fill = (
+        "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.13), "
+        "stop:0.10 rgba(255, 255, 255, 0.075), stop:1 rgba(255, 255, 255, 0.035))"
+        if t.liquid_glass else t.card_bg
+    )
+    card_hover_fill = (
+        "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.22), "
+        "stop:0.12 rgba(255, 255, 255, 0.14), stop:1 rgba(255, 255, 255, 0.065))"
+        if t.liquid_glass else t.card_bg_hover
+    )
     return f"""
 * {{
     font-family: {t.font_family};
@@ -192,7 +243,7 @@ QWidget#overlayWindow {{
 }}
 
 QWidget#panelSurface {{
-    background-color: {t.bg_elevated};
+    background: {panel_fill};
     border: 1px solid {t.card_border_hover};
     border-radius: {t.radius_panel}px;
 }}
@@ -242,7 +293,7 @@ QLabel#rowMeta {{
 }}
 
 QLineEdit {{
-    background-color: {t.card_bg};
+    background: {card_fill};
     border: 1px solid {t.card_border};
     border-radius: {t.radius_chip}px;
     padding: 9px 13px;
@@ -275,13 +326,13 @@ QListWidget::item:selected {{
 }}
 
 QWidget#clipRow {{
-    background-color: {t.card_bg};
+    background: {card_fill};
     border: 1px solid {t.card_border};
     border-radius: {t.radius_card}px;
 }}
 
 QWidget#clipRow[hovered="true"] {{
-    background-color: {t.card_bg_hover};
+    background: {card_hover_fill};
     border: 1px solid {t.card_border_hover};
 }}
 
@@ -323,7 +374,7 @@ QSplitter::handle {{
 }}
 
 QPushButton {{
-    background-color: {t.card_bg};
+    background: {card_fill};
     border: 1px solid {t.card_border};
     border-radius: {t.radius_chip}px;
     padding: 8px 16px;
@@ -333,7 +384,7 @@ QPushButton {{
 }}
 
 QPushButton:hover {{
-    background-color: {t.card_bg_hover};
+    background: {card_hover_fill};
     border: 1px solid {t.card_border_hover};
 }}
 
@@ -394,7 +445,7 @@ QPushButton#toggleActive {{
 }}
 
 QMenu {{
-    background-color: {t.card_bg};
+    background: {panel_fill};
     border: 1px solid {t.card_border};
     border-radius: {t.radius_chip}px;
     padding: 6px;

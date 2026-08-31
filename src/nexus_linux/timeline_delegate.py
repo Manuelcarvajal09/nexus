@@ -98,8 +98,8 @@ class ClipCardDelegate(QStyledItemDelegate):
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
 
-        bg = QColor(t.accent_dim) if selected else QColor(t.card_bg_hover if hovered else t.card_bg)
-        border = QColor(t.accent) if selected else QColor(t.card_border_hover if hovered else t.card_border)
+        bg = styles.qcolor(t.accent_dim) if selected else styles.qcolor(t.card_bg_hover if hovered else t.card_bg)
+        border = styles.qcolor(t.accent) if selected else styles.qcolor(t.card_border_hover if hovered else t.card_border)
         path = QPainterPath()
         path.addRoundedRect(QRectF(outer), t.radius_card, t.radius_card)
         painter.fillPath(path, bg)
@@ -173,7 +173,7 @@ class ClipCardDelegate(QStyledItemDelegate):
         title_font = QFont(t.font_family.split(",")[0].strip(' "'))
         title_font.setPointSize(11)
         painter.setFont(title_font)
-        painter.setPen(QColor(t.text_primary))
+        painter.setPen(styles.qcolor(t.text_primary))
         text_rect = rect.adjusted(0, text_top, 0, -20)
         painter.drawText(
             text_rect,
@@ -197,19 +197,19 @@ class ClipCardDelegate(QStyledItemDelegate):
         self._draw_meta_line(painter, meta_rect, item, TYPE_LABELS.get(detected, "Imagen"), t)
 
     def _paint_color_card(self, painter, rect, item, t) -> None:
-        color = _parse_color(item.text_content or "") or QColor(t.accent)
+        color = _parse_color(item.text_content or "") or styles.qcolor(t.accent)
         swatch_rect = rect.adjusted(0, 0, 0, -(rect.height() - self._thumb_height))
         swatch_path = QPainterPath()
         swatch_path.addRoundedRect(QRectF(swatch_rect), t.radius_chip, t.radius_chip)
         painter.fillPath(swatch_path, color)
-        painter.setPen(QColor(t.card_border))
+        painter.setPen(styles.qcolor(t.card_border))
         painter.drawPath(swatch_path)
 
         value_font = QFont(t.font_family.split(",")[0].strip(' "'))
         value_font.setPointSize(11)
         value_font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(value_font)
-        painter.setPen(QColor(t.text_primary))
+        painter.setPen(styles.qcolor(t.text_primary))
         value_rect = rect.adjusted(0, self._thumb_height + 8, 0, 0)
         painter.drawText(value_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, item.text_content.strip())
 
@@ -225,7 +225,7 @@ class ClipCardDelegate(QStyledItemDelegate):
                 pass
 
         painter.setFont(_mono_font())
-        painter.setPen(QColor(t.text_primary))
+        painter.setPen(styles.qcolor(t.text_primary))
         code_rect = rect.adjusted(0, 0, 0, -20)
         painter.drawText(
             code_rect,
@@ -243,7 +243,7 @@ class ClipCardDelegate(QStyledItemDelegate):
         title_font.setPointSize(11)
         title_font.setWeight(QFont.Weight.Medium)
         painter.setFont(title_font)
-        painter.setPen(QColor(t.text_primary))
+        painter.setPen(styles.qcolor(t.text_primary))
         filename = (item.file_path or "").rsplit("/", 1)[-1] or "[archivo]"
         painter.drawText(
             name_rect,
@@ -261,7 +261,7 @@ class ClipCardDelegate(QStyledItemDelegate):
         title_font = QFont(t.font_family.split(",")[0].strip(' "'))
         title_font.setPointSize(11)
         painter.setFont(title_font)
-        painter.setPen(QColor(t.text_primary))
+        painter.setPen(styles.qcolor(t.text_primary))
         text_rect = rect.adjusted(0, 28, 0, -20)
         preview = (item.text_content or item.preview(140)).strip()
         painter.drawText(
@@ -277,7 +277,7 @@ class ClipCardDelegate(QStyledItemDelegate):
         meta_font = QFont(t.font_family.split(",")[0].strip(' "'))
         meta_font.setPointSize(9)
         painter.setFont(meta_font)
-        painter.setPen(QColor(t.text_tertiary))
+        painter.setPen(styles.qcolor(t.text_tertiary))
         when = relative_time.format_relative(item.updated_at)
         source = item.source_app or type_label
         painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, f"{source} · {when}")
@@ -287,13 +287,13 @@ class ClipCardDelegate(QStyledItemDelegate):
         badge_rect = QRectF(outer_rect.right() - size - 4, outer_rect.top() + 4, size, size)
         path = QPainterPath()
         path.addEllipse(badge_rect)
-        painter.fillPath(path, QColor(t.bg_elevated))
-        painter.setPen(QColor(t.card_border))
+        painter.fillPath(path, styles.qcolor(t.bg_elevated))
+        painter.setPen(styles.qcolor(t.card_border))
         painter.drawPath(path)
 
         font = QFont(t.font_family.split(",")[0].strip(' "'))
         font.setPointSize(9)
         font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(font)
-        painter.setPen(QColor(t.text_secondary))
+        painter.setPen(styles.qcolor(t.text_secondary))
         painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, str(number))
