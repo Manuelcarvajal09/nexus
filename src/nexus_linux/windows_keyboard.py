@@ -1,9 +1,10 @@
-"""Observe genuine Ctrl+V without stealing it from the target application."""
+"""Intercept explicitly enabled external Ctrl+V; never touch Nexus input."""
 from __future__ import annotations
-import ctypes, os, threading
+import ctypes, logging, os, threading, time, uuid
+from dataclasses import dataclass
 from ctypes import wintypes
 from PySide6.QtCore import QObject, Signal
-from .windows_platform import NEXUS_INPUT_MARKER, foreground_window, window_process_id
+from .windows_platform import NEXUS_INPUT_MARKER, FocusTarget, capture_focus_target
 
 WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN, WM_KEYUP, WM_SYSKEYUP, WM_QUIT = 13, 0x0100, 0x0104, 0x0101, 0x0105, 0x0012
 VK_CONTROL, VK_V, LLKHF_INJECTED = 0x11, 0x56, 0x10
@@ -22,12 +23,56 @@ user32.UnhookWindowsHookEx.argtypes = [wintypes.HANDLE]
 user32.PostThreadMessageW.argtypes = [wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
+@dataclass(frozen=True)
+class PasteRequest:
+    event_id: str
+    target: FocusTarget
+    pressed_at: float
+
+
 class WindowsPasteWatcher(QObject):
-    paste_detected = Signal()
+    paste_detected = Signal(object)
+    hook_failed = Signal(str)
     def __init__(self, parent=None):
         super().__init__(parent); self._thread=None; self._thread_id=0; self._hook=None; self._callback=None; self._paste_chord_active=False
-    def start(self):
+        self._stopping = threading.Event()
+        self._paste_sequence = 0
+        self._enabled = False
+        self._request = None
+        self._v_down = False
+        self._modifiers = {}
+    def set_enabled(self, enabled):
+        self._enabled = bool(enabled)
+    def decide(self, message, key, marker=0, *, ctrl=False, other_modifier=False, target=None):
+        """Bounded hook decision, also usable by native-free integration tests.
+
+        True means suppress this V event. A held intercepted V stays suppressed
+        even across pause; marked input cannot reset physical chord tracking.
+        """
+        if marker == NEXUS_INPUT_MARKER or key != VK_V:
+            return False
+        if message in (WM_KEYDOWN, WM_SYSKEYDOWN):
+            if self._v_down:
+                return self._paste_chord_active
+            self._v_down = True
+            self._paste_chord_active = bool(self._enabled and ctrl and not other_modifier
+                                            and target and target.process_id != os.getpid())
+            if self._paste_chord_active:
+                self._request = PasteRequest(uuid.uuid4().hex, target, time.perf_counter())
+            return self._paste_chord_active
+        if message in (WM_KEYUP, WM_SYSKEYUP):
+            swallowed = self._paste_chord_active
+            request = self._request
+            self._v_down = self._paste_chord_active = False
+            self._request = None
+            if swallowed and self._enabled and request:
+                self.paste_detected.emit(request)
+            return swallowed
+        return False
+    def start(self, enabled=True):
         if self._thread and self._thread.is_alive(): return
+        self._stopping.clear()
+        self.set_enabled(enabled)
         self._thread=threading.Thread(target=self._run,name="NexusPasteWatcher",daemon=True); self._thread.start()
     def _run(self):
         self._thread_id=int(kernel32.GetCurrentThreadId())
@@ -35,23 +80,47 @@ class WindowsPasteWatcher(QObject):
         def callback(code,wparam,lparam):
             if code>=0:
                 event=ctypes.cast(lparam,ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
-                external=window_process_id(foreground_window()) != os.getpid()
-                generated_by_nexus=int(event.dwExtraInfo)==NEXUS_INPUT_MARKER
-                if int(wparam) in (WM_KEYDOWN,WM_SYSKEYDOWN) and event.vkCode==VK_V:
-                    self._paste_chord_active=bool(user32.GetAsyncKeyState(VK_CONTROL)&0x8000) and not generated_by_nexus and external
-                # Confirm only on V release, but remember Ctrl from keydown:
-                # users may release Ctrl a fraction before V, in which case
-                # querying GetAsyncKeyState here loses a perfectly valid paste.
-                elif int(wparam) in (WM_KEYUP,WM_SYSKEYUP) and event.vkCode==VK_V and self._paste_chord_active:
-                    self._paste_chord_active=False
-                    self.paste_detected.emit()
+                own = int(event.dwExtraInfo) == NEXUS_INPUT_MARKER
+                key = int(event.vkCode)
+                if not own and key in (0x11,0xA2,0xA3,0x10,0xA0,0xA1,0x12,0xA4,0xA5,0x5B,0x5C):
+                    # Async state for the changing key is not yet updated in
+                    # LowLevelKeyboardProc. Record prior physical key events.
+                    self._modifiers[key] = int(wparam) in (WM_KEYDOWN, WM_SYSKEYDOWN)
+                def down(keys):
+                    return any(self._modifiers.get(k, bool(user32.GetAsyncKeyState(k)&0x8000)) for k in keys)
+                if not own and event.vkCode == VK_V:
+                    if self.decide(int(wparam), int(event.vkCode), int(event.dwExtraInfo),
+                                   ctrl=down((0x11,0xA2,0xA3)),
+                                   other_modifier=down((0x10,0xA0,0xA1,0x12,0xA4,0xA5,0x5B,0x5C)),
+                                   target=capture_focus_target() if not self._v_down else None):
+                        return 1
             return user32.CallNextHookEx(self._hook,code,wparam,lparam)
         self._callback=callback
-        self._hook=user32.SetWindowsHookExW(WH_KEYBOARD_LL,callback,None,0)
+        # Force creation of this thread's message queue before a concurrent
+        # stop() can post WM_QUIT (PostThreadMessage otherwise fails).
         message=wintypes.MSG()
-        while self._hook and user32.GetMessageW(ctypes.byref(message),None,0,0)>0:
-            user32.TranslateMessage(ctypes.byref(message)); user32.DispatchMessageW(ctypes.byref(message))
-        if self._hook: user32.UnhookWindowsHookEx(self._hook)
-        self._hook=None
+        user32.PeekMessageW(ctypes.byref(message),None,0,0,0)
+        try:
+            if self._stopping.is_set(): return
+            self._hook=user32.SetWindowsHookExW(WH_KEYBOARD_LL,callback,None,0)
+            if not self._hook:
+                self.set_enabled(False)
+                logging.getLogger("nexus.keyboard").warning("paste_watcher.hook_failed winerror=%s", ctypes.get_last_error())
+                self.hook_failed.emit("Stack detenido: no se pudo registrar Ctrl+V")
+            while self._hook and not self._stopping.is_set() and user32.GetMessageW(ctypes.byref(message),None,0,0)>0:
+                user32.TranslateMessage(ctypes.byref(message)); user32.DispatchMessageW(ctypes.byref(message))
+        finally:
+            unexpected_exit = bool(self._hook) and not self._stopping.is_set()
+            if self._hook: user32.UnhookWindowsHookEx(self._hook)
+            self._hook=None; self._thread_id=0; self._callback=None; self._paste_chord_active=False; self._paste_sequence=0
+            self._v_down=False; self._request=None
+            self._modifiers.clear()
+            if unexpected_exit:
+                self.set_enabled(False)
+                self.hook_failed.emit("Stack detenido: el observador Ctrl+V se desconectó")
     def stop(self):
+        self.set_enabled(False)
+        self._stopping.set()
         if self._thread_id: user32.PostThreadMessageW(self._thread_id,WM_QUIT,0,0)
+        if self._thread and self._thread is not threading.current_thread():
+            self._thread.join(timeout=1)

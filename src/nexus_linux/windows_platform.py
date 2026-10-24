@@ -48,12 +48,15 @@ kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWS
 kernel32.CreateMutexW.restype = wintypes.HANDLE
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 kernel32.CloseHandle.restype = wintypes.BOOL
+kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
 kernel32.OpenProcess.restype = wintypes.HANDLE
 kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
 user32.RegisterClipboardFormatW.argtypes = [wintypes.LPCWSTR]
 user32.RegisterClipboardFormatW.restype = wintypes.UINT
 user32.IsClipboardFormatAvailable.argtypes = [wintypes.UINT]
+user32.GetClipboardSequenceNumber.argtypes = []
+user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
 dwmapi.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
 dwmapi.DwmSetWindowAttribute.restype = ctypes.c_long
 
@@ -97,6 +100,36 @@ def window_process_id(hwnd: int) -> int:
     user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
     return int(pid.value)
 
+def activate_foreground_window(hwnd: int) -> bool:
+    """Complete an explicit Qt activation without changing global focus policy.
+
+    RegisterHotKey activation can arrive on Nexus's dispatcher thread while
+    foreground input belongs to another GUI thread. A brief AttachThreadInput
+    allows SetForegroundWindow to fulfill the existing show-and-focus contract;
+    focus is always detached in finally, and failure is reported, not forced.
+    """
+    if not hwnd or not user32.IsWindow(hwnd):
+        return False
+    if foreground_window() == hwnd:
+        return True
+    current_thread = int(kernel32.GetCurrentThreadId())
+    foreground = foreground_window()
+    foreground_thread = int(user32.GetWindowThreadProcessId(foreground, None)) if foreground else 0
+    target_thread = int(user32.GetWindowThreadProcessId(hwnd, None))
+    attached_target = bool(target_thread and target_thread != current_thread
+                           and user32.AttachThreadInput(current_thread, target_thread, True))
+    attached_foreground = bool(foreground_thread and foreground_thread not in
+                               (current_thread, target_thread)
+                               and user32.AttachThreadInput(current_thread, foreground_thread, True))
+    try:
+        user32.SetForegroundWindow(hwnd)
+    finally:
+        if attached_foreground:
+            user32.AttachThreadInput(current_thread, foreground_thread, False)
+        if attached_target:
+            user32.AttachThreadInput(current_thread, target_thread, False)
+    return foreground_window() == hwnd
+
 def foreground_process_name() -> str:
     pid = window_process_id(foreground_window())
     if not pid: return ""
@@ -115,6 +148,10 @@ def clipboard_requests_exclusion() -> bool:
         fmt = user32.RegisterClipboardFormatW(name)
         if fmt and user32.IsClipboardFormatAvailable(fmt): return True
     return False
+
+def clipboard_sequence() -> int:
+    """Opaque Win32 version, including changes made by other processes."""
+    return int(user32.GetClipboardSequenceNumber())
 
 def capture_focus_target() -> FocusTarget | None:
     hwnd = foreground_window()
