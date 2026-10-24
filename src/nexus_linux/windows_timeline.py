@@ -1,0 +1,815 @@
+"""Windows Timeline with pinboard administration inside the existing surface.
+
+No library window or persisted geometry is needed. Shared Timeline/storage
+behavior is retained; the embedded editor and layout are Windows-only.
+"""
+
+from PySide6.QtCore import QRect, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter
+from PySide6.QtWidgets import (
+    QApplication, QBoxLayout, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QMenu, QMessageBox, QPushButton, QScrollArea,
+    QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
+)
+
+from .pinboard_editor import _swatch_pixmap
+from .pinboard_sidebar import HISTORY_ROW_ID, PinboardSidebar
+from .storage import AVAILABLE_COLORS, SUGGESTED_EMOJI, Pinboard
+from .timeline_window import TimelineWindow
+from . import windows_design
+from .windows_card_delegate import WindowsClipCardDelegate
+from .windows_material import upgrade_surface
+from .windows_motion import SearchFocusHighlight, WindowsMotion
+from .windows_backdrop import configure_native_host, handle_native_host_event
+from .windows_platform import activate_foreground_window
+
+
+class _InlineEditor(QWidget):
+    saved = Signal()
+    cancelled = Signal()
+
+    def __init__(self, board, parent, creating=False):
+        super().__init__(parent)
+        self.selected_emoji = board.emoji
+        self.selected_color = board.color_hex
+        root = QVBoxLayout(self)
+        form = QWidget()
+        form_layout = QVBoxLayout(form)
+        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout.setSpacing(windows_design.INTERNAL_GAP)
+        form_layout.addWidget(QLabel("Nombre"))
+        self._name = QLineEdit(board.name)
+        self._name.setPlaceholderText("Nombre del pinboard")
+        self._name.setMinimumWidth(0)
+        form_layout.addWidget(self._name)
+        toggles = QHBoxLayout()
+        toggles.setSpacing(windows_design.INTERNAL_GAP)
+        self._emoji_toggle = QPushButton("Emoji")
+        self._color_toggle = QPushButton("Color")
+        for button, mode in ((self._emoji_toggle, "emoji"), (self._color_toggle, "color")):
+            button.setCheckable(True)
+            button.clicked.connect(lambda _checked, mode=mode: self._switch_mode(mode))
+            toggles.addWidget(button)
+        form_layout.addLayout(toggles)
+        form_layout.addStretch()
+        self._name.setStyleSheet("padding: 6px 10px;")
+        for button in (self._emoji_toggle, self._color_toggle):
+            button.setStyleSheet("padding: 5px 10px;")
+        identity = QWidget()
+        identity_layout = QVBoxLayout(identity)
+        identity_layout.setContentsMargins(0, 0, 0, 0)
+        identity_layout.setSpacing(windows_design.INTERNAL_GAP)
+        identity_layout.addWidget(QLabel("Identidad visual"))
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._build_emoji_grid())
+        self._stack.addWidget(self._build_color_grid())
+        identity_layout.addWidget(self._stack)
+        identity_layout.addStretch()
+        self._form_body = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._form_body.setSpacing(windows_design.BLOCK_GAP)
+        self._form_body.addWidget(form, 4)
+        self._form_body.addWidget(identity, 6)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(windows_design.BLOCK_GAP)
+        root.addLayout(self._form_body)
+        self._actions = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._actions.setSpacing(windows_design.INTERNAL_GAP)
+        self._actions.addStretch()
+        for text, name, callback in (("Cancelar", "flat", self.reject), ("Guardar", "primary", self._save)):
+            button = QPushButton(text)
+            button.setObjectName(name)
+            button.clicked.connect(callback)
+            self._actions.addWidget(button)
+        root.addLayout(self._actions)
+        self._columns = None
+        self._switch_mode("emoji" if board.emoji else "color")
+        # Start with the narrow minimum; a default QWidget width of 640 would
+        # otherwise force a ten-column minimum into a narrow scroll viewport.
+        self.resize(200, self.height())
+        self._reflow()
+
+    def _save(self):
+        if not self._name.text().strip():
+            self._name.setFocus()
+            return
+        self.accept()
+
+    def _switch_mode(self, mode):
+        self._emoji_toggle.setChecked(mode == "emoji")
+        self._color_toggle.setChecked(mode == "color")
+        self._stack.setCurrentIndex(0 if mode == "emoji" else 1)
+
+    def _pick_emoji(self, emoji):
+        self.selected_emoji = emoji
+
+    def result_kwargs(self):
+        return {"name": self._name.text().strip(), "emoji": self.selected_emoji if self._emoji_toggle.isChecked() else None,
+                "color_hex": self.selected_color}
+
+    def _build_color_grid(self):
+        page = QWidget()
+        grid = QGridLayout(page)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(4)
+        for index, color in enumerate(AVAILABLE_COLORS):
+            button = QPushButton()
+            button.setFixedSize(28, 28)
+            button.setProperty("colorSwatch", True)
+            button.setIcon(QIcon(_swatch_pixmap(color, color == self.selected_color)))
+            button.setIconSize(button.size())
+            button.setToolTip(color)
+            button.setAccessibleName(f"Color {color}")
+            button.clicked.connect(lambda _checked, color=color: self._pick_color(color))
+            grid.addWidget(button, index // 10, index % 10)
+        return page
+
+    def _build_emoji_grid(self):
+        page = QWidget()
+        grid = QGridLayout(page)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(4)
+        for index, emoji in enumerate(SUGGESTED_EMOJI):
+            button = QPushButton(emoji)
+            button.setFixedSize(28, 28)
+            button.setStyleSheet("padding: 0; font-size: 16px;")
+            button.setAccessibleName(f"Emoji {emoji}")
+            button.clicked.connect(lambda _checked, emoji=emoji: self._pick_emoji(emoji))
+            grid.addWidget(button, index // 10, index % 10)
+        return page
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reflow()
+
+    def _reflow(self):
+        if not hasattr(self, "_form_body"):
+            return
+        columns = 10 if self.width() >= 540 else 5
+        self._form_body.setDirection(QBoxLayout.Direction.LeftToRight if columns == 10 else QBoxLayout.Direction.TopToBottom)
+        self._actions.setDirection(QBoxLayout.Direction.LeftToRight if self.width() >= 330 else QBoxLayout.Direction.TopToBottom)
+        if self._columns != columns:
+            self._columns = columns
+            for page in (self._stack.widget(0), self._stack.widget(1)):
+                grid = page.layout()
+                widgets = [grid.takeAt(0).widget() for _ in range(grid.count())]
+                for index, widget in enumerate(widgets):
+                    grid.addWidget(widget, index // columns, index % columns)
+
+    def _pick_color(self, hex_color):
+        self.selected_color = hex_color
+        old = self._stack.widget(1)
+        self._stack.removeWidget(old)
+        self._stack.insertWidget(1, self._build_color_grid())
+        self._stack.setCurrentIndex(1)
+        old.deleteLater()
+        self._columns = None
+        if hasattr(self, "_form_body"):
+            self._reflow()
+
+    def accept(self):
+        self.saved.emit()
+
+    def reject(self):
+        self.cancelled.emit()
+
+
+class _InlineSidebar(PinboardSidebar):
+    create_requested = Signal()
+    edit_requested = Signal(int)
+    delete_requested = Signal(int)
+
+    def refresh(self):
+        super().refresh()
+        self._list.blockSignals(True)
+        for row in range(self._list.count() - 1, -1, -1):
+            if self._list.item(row).data(Qt.ItemDataRole.UserRole) == HISTORY_ROW_ID:
+                self._list.takeItem(row)
+        self._list.blockSignals(False)
+
+    def _on_create(self):
+        self.create_requested.emit()
+
+    def _show_board_menu(self, row_id, global_pos):
+        menu = QMenu(self)
+        edit = menu.addAction("Renombrar / color / emoji…")
+        up = menu.addAction("Mover arriba")
+        down = menu.addAction("Mover abajo")
+        menu.addSeparator()
+        delete = menu.addAction("Eliminar…")
+        chosen = menu.exec(global_pos)
+        if chosen == edit:
+            self.edit_requested.emit(row_id)
+        elif chosen == delete:
+            self.delete_requested.emit(row_id)
+        elif chosen in (up, down):
+            self._storage.move_pinboard(row_id, -1 if chosen == up else 1)
+            self.refresh()
+            self.changed.emit()
+
+
+class WindowsTimelineWindow(TimelineWindow):
+    def __init__(self, storage, paste_service, preview_service=None, parent=None):
+        super().__init__(storage, paste_service, preview_service, parent)
+        configure_native_host(self)
+        self._persistent_when_inactive = True
+        self._editor = None
+        self._editing_id = None
+        self.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+
+        # Replace only the chip layout's host. Its natural minimum width must
+        # never propagate from arbitrarily long board names to the HWND.
+        header = self._chrome.layout().itemAt(0).layout()
+        header.takeAt(1)
+        chip_host = QWidget()
+        chip_host.setLayout(self._pinboard_row)
+        self._pinboard_row.setContentsMargins(0, 0, 0, 0)
+        self._pinboard_row.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        self._chip_scroll = QScrollArea()
+        self._chip_scroll.setObjectName("pinboardChipScroll")
+        self._chip_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._chip_scroll.setWidgetResizable(True)
+        self._chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._chip_scroll.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self._chip_scroll.setMinimumWidth(0)
+        self._chip_scroll.setWidget(chip_host)
+        header.insertWidget(1, self._chip_scroll, 1)
+        header.setStretch(2, 0)
+
+        # A fixed-size viewport, not an editor sizeHint, owns panel height.
+        self._pages = QStackedWidget()
+        self._pages.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        timeline_page = QWidget()
+        timeline_layout = QVBoxLayout(timeline_page)
+        timeline_layout.setContentsMargins(0, 0, 0, 0)
+        timeline_layout.setSpacing(0)
+        for widget in (self._list, self._empty_label):
+            self._surface_layout.removeWidget(widget)
+            timeline_layout.addWidget(widget)
+        self._pages.addWidget(timeline_page)
+        self._admin_page = QWidget()
+        admin_layout = QVBoxLayout(self._admin_page)
+        admin_layout.setContentsMargins(0, 0, 0, 0)
+        admin_layout.setSpacing(windows_design.BLOCK_GAP)
+        self._back_btn = QPushButton("← Volver")
+        self._back_btn.setObjectName("expandToggle")
+        self._back_btn.clicked.connect(self.close_pinboard_manager)
+        admin_layout.addWidget(self._back_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+        body = QHBoxLayout()
+        body.setSpacing(windows_design.BLOCK_GAP)
+        self._sidebar = _InlineSidebar(storage)
+        self._sidebar.setObjectName("pinboardNavigation")
+        self._sidebar.set_compact(True)
+        self._sidebar.setMinimumWidth(120)
+        self._sidebar.setMaximumWidth(156)
+        self._sidebar.layout().setContentsMargins(0, 0, 0, 0)
+        self._sidebar.layout().setSpacing(windows_design.INTERNAL_GAP)
+        self._sidebar._edit_btn.setText("…")
+        self._sidebar._edit_btn.setAccessibleName("Opciones del pinboard")
+        body.addWidget(self._sidebar)
+        self._editor_scroll = QScrollArea()
+        self._editor_scroll.setObjectName("pinboardDetailScroll")
+        self._editor_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._editor_scroll.setWidgetResizable(True)
+        self._editor_scroll.setMinimumSize(0, 0)
+        body.addWidget(self._editor_scroll, 1)
+        admin_layout.addLayout(body, 1)
+        self._pages.addWidget(self._admin_page)
+        self._surface_layout.addWidget(self._pages)
+        self._sidebar.create_requested.connect(lambda: self._open_editor(None))
+        self._sidebar.edit_requested.connect(self._open_editor)
+        self._sidebar.delete_requested.connect(self._delete_pinboard)
+        self._sidebar.board_selected.connect(self._admin_selected)
+        self._sidebar.changed.connect(self.refresh)
+        self.manage_pinboards_requested.connect(self.show_pinboard_manager)
+        self._surface = upgrade_surface(self, self._surface)
+        self._surface_layout.setContentsMargins(*([windows_design.SURFACE_MARGIN] * 4))
+        self._surface_layout.setSpacing(windows_design.BLOCK_GAP)
+        # Surface owns the one outer inset. Extra chrome padding here would
+        # double the header/search gutter and misalign it with cards/detail.
+        self._chrome.layout().setContentsMargins(0, 0, 0, 0)
+        self._chrome.layout().setSpacing(windows_design.INTERNAL_GAP)
+        self._motion = WindowsMotion(self)
+        old_delegate = self._delegate
+        self._delegate = WindowsClipCardDelegate(self._list)
+        self._delegate.set_preview_data(self._preview_data)
+        self._list.setItemDelegate(self._delegate)
+        old_delegate.deleteLater()
+        self._list.setViewportMargins(0, 0, 0, 0)
+        self._list.setSpacing(2)
+        # At compact widths the icon-mode row must remain reachable instead of
+        # silently clipping the trailing card; only this Windows view changes.
+        self._sync_history_scrollbar()
+        self._empty_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._empty_label.setWordWrap(True)
+
+        # Brand/utility row, navigation row, search: independent hierarchies.
+        header.removeWidget(self._chip_scroll)
+        self._chrome.layout().insertWidget(1, self._chip_scroll)
+        header.setSpacing(windows_design.INTERNAL_GAP)
+        self._brand = QLabel()
+        self._brand.setFixedSize(24, 24)
+        header.insertWidget(0, self._brand)
+        eyebrow = QLabel("PORTAPAPELES")
+        eyebrow.setObjectName("contextEyebrow")
+        self._eyebrow = eyebrow
+        header.insertWidget(2, eyebrow)
+        self._count_badge.setFixedHeight(24)
+        self._count_badge.setToolTip("Elementos en la vista actual")
+        self._style_btn.setAccessibleName("Elegir estilo visual")
+        self._expand_btn.setAccessibleName("Expandir o contraer el panel")
+        self._close_btn.setText("")
+        self._search.setPlaceholderText("Buscar en tu historial…")
+        self._search.setAccessibleName("Buscar contenido del portapapeles")
+        self._search.setClearButtonEnabled(True)
+        self._search_action = self._search.addAction(windows_design.icon("search", windows_design.palette().muted), QLineEdit.ActionPosition.LeadingPosition)
+        self._search_highlight = SearchFocusHighlight(self._search)
+        footer = QWidget()
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(6, 0, 6, 0)
+        self._context_label = QLabel("Historial")
+        self._context_label.hide()
+        self._context_label.setObjectName("contextTitle")
+        self._context_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._context_label.setMinimumWidth(0)
+        self._context_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        footer_layout.addWidget(self._context_label, 1)
+        self._feedback_label = QLabel("Guardado")
+        self._feedback_label.setObjectName("successFeedback")
+        self._feedback_label.hide()
+        footer_layout.addWidget(self._feedback_label)
+        self._feedback_timer = QTimer(self)
+        self._feedback_timer.setSingleShot(True)
+        self._feedback_timer.setInterval(1400)
+        self._feedback_timer.timeout.connect(self._feedback_label.hide)
+        self._keyboard_hint = QLabel("Ctrl+F  Buscar    ·    Enter  Pegar    ·    Esc  Cerrar")
+        self._keyboard_hint.setObjectName("keyboardHint")
+        self._keyboard_hint.setMinimumWidth(0)
+        self._keyboard_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._keyboard_hint.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        footer_layout.addWidget(self._keyboard_hint, 2)
+        self._footer = footer
+        self._surface_layout.addWidget(footer)
+        self.apply_visual_theme()
+        self._sync_chip_height()
+        QApplication.instance().focusChanged.connect(self._ensure_editor_focus_visible)
+
+    @Slot(QWidget, QWidget)
+    def _ensure_editor_focus_visible(self, previous, current):
+        # Keep Save/color/emoji actions reachable inside the nested editor on
+        # short displays, including explicit keyboard-focus changes.
+        if (current is not None and self._pages.currentIndex() == 1
+                and self._editor_scroll.isAncestorOf(current)):
+            self._editor_scroll.ensureWidgetVisible(current, 8, 8)
+
+    def nativeEvent(self, event_type, message):
+        result = handle_native_host_event(self, event_type, message)
+        if result is not None:
+            return result
+        return super().nativeEvent(event_type, message)
+
+    def paintEvent(self, event):
+        if getattr(getattr(self, "_surface", None), "_native_backdrop", False):
+            painter = QPainter(self)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            painter.fillRect(event.rect(), QColor(0, 0, 0, 0))
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            self._surface.paint_native_backdrop(painter)
+            painter.end()
+        else:
+            painter = QPainter(self)
+            painter.fillRect(event.rect(), QColor(windows_design.palette().panel))
+            painter.end()
+
+    def apply_visual_theme(self):
+        p = windows_design.palette()
+        self._surface.update()
+        self._brand.setPixmap(windows_design.icon("brand", p.accent, 24).pixmap(24, 24))
+        self._close_btn.setIcon(windows_design.icon("close", p.muted, 16))
+        self._expand_btn.setText("Contraer" if self._expanded else "Expandir")
+        self._expand_btn.setIcon(windows_design.icon("up" if self._expanded else "down", p.muted, 14))
+        self._search_action.setIcon(windows_design.icon("search", p.muted))
+        self._back_btn.setText("Volver")
+        self._back_btn.setIcon(windows_design.icon("back", p.muted, 16))
+        labels = dict(windows_design.theme_choices())
+        for action, key in self._theme_actions.items():
+            action.setText(labels[key])
+        self._chip_signature = None
+        self.refresh()
+        self._sync_header_density()
+
+    def _sync_header_density(self):
+        if not hasattr(self, "_brand"):
+            return
+        self._eyebrow.setVisible(self.width() >= 760)
+        self._brand.setVisible(self.width() >= 520)
+        self._count_badge.setVisible(self.width() >= 520)
+        self._expand_btn.setText(("Contraer" if self._expanded else "Expandir") if self.width() >= 520 else "")
+        if hasattr(self, "_keyboard_hint"):
+            self._keyboard_hint.setText("Esc  Volver al historial" if self._pages.currentIndex() == 1 else
+                "Enter  Pegar    ·    Esc  Cerrar" if self.width() < 760 else
+                "Ctrl+F  Buscar    ·    Enter  Pegar    ·    Esc  Cerrar")
+
+    def _sync_history_scrollbar(self):
+        # Normal desktop widths fit all cards; only compact windows may need
+        # horizontal scrolling to reach a trailing card.
+        self._list.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff if self.width() >= 900
+            else Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_history_scrollbar()
+        self._sync_header_density()
+
+    def _rebuild_pinboard_chips(self):
+        boards = self._storage.list_pinboards()
+        signature = (windows_design.palette(),
+                     tuple((b.id, b.name, b.color_hex, b.emoji) for b in boards))
+        if signature == getattr(self, "_chip_signature", None):
+            self._update_chip_state()
+            return
+        super()._rebuild_pinboard_chips()
+        self._chip_signature = signature
+        # The generic "Pinboards" pill and "+ Pinboard" are intentionally
+        # removed from the navigation. Real Pinboards remain first-class tabs.
+        for index in range(self._pinboard_row.count() - 1, -1, -1):
+            widget = self._pinboard_row.itemAt(index).widget()
+            if isinstance(widget, QPushButton) and widget.text() in ("+ Pinboard", "Pinboards"):
+                self._pinboard_row.takeAt(index)
+                widget.deleteLater()
+        p = windows_design.palette()
+        for board_id, button in self._pinboard_buttons.items():
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setToolTip(button.text())
+            button.setAccessibleName(button.text())
+            button.clicked.disconnect()
+            button.clicked.connect(lambda _checked, board_id=board_id: self._navigate_board(board_id))
+            # The board name already carries its emoji. A second generic board
+            # icon would duplicate it and steal enough width to elide the
+            # selected, bold label.
+            if board_id is None:
+                button.setIcon(windows_design.icon("history", p.accent if button.isChecked() else p.muted, 15))
+            else:
+                button.setIcon(QIcon())
+        self._sync_chip_widths()
+        self._pinboard_row.addStretch()
+        options = QToolButton()
+        options.setObjectName("navigationOptions")
+        options.setText("⋯")
+        options.setToolTip("Administrar Pinboards")
+        options.setAccessibleName("Administrar Pinboards")
+        options.setCheckable(True)
+        options.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(options)
+        manage = menu.addAction("Administrar Pinboards")
+        manage.triggered.connect(self.manage_pinboards_requested.emit)
+        options.setMenu(menu)
+        self._pinboard_row.addWidget(options)
+        self._management_btn = options
+        self._update_chip_state()
+
+    def _update_chip_state(self):
+        p = windows_design.palette()
+        in_manager = hasattr(self, "_pages") and self._pages.currentIndex() == 1
+        for board_id, button in self._pinboard_buttons.items():
+            button.setChecked(not in_manager and board_id == self._current_pinboard_id)
+            if board_id is None:
+                button.setIcon(windows_design.icon("history", p.accent if button.isChecked() else p.muted, 15))
+            else:
+                button.setIcon(QIcon())
+        self._sync_chip_widths()
+        if hasattr(self, "_management_btn"):
+            self._management_btn.setChecked(in_manager)
+
+    def _sync_chip_widths(self):
+        """Reserve enough room for the checked (bold) label on every theme.
+
+        QSS applies a heavier weight to the checked chip. QPushButton does not
+        automatically grow when that state font changes, so a long board name
+        could be elided even though the row has free space. The metrics are
+        measured from a bold copy of the current theme font, then padding,
+        border and optional icon width are added explicitly.
+        """
+        for button in self._pinboard_buttons.values():
+            button.ensurePolished()
+            bold = QFont(button.font())
+            bold.setBold(True)
+            text_width = QFontMetrics(bold).horizontalAdvance(button.text())
+            icon_width = 0
+            if not button.icon().isNull():
+                icon_width = button.iconSize().width() + 6
+            # 12 px padding on both sides, 1 px border on both sides, and a
+            # small safety margin for emoji fallback fonts.
+            button.setMinimumWidth(text_width + icon_width + 24 + 2 + 4)
+
+    def _new_pinboard(self):
+        self.show_pinboard_manager(creating=True)
+
+    def _navigate_board(self, board_id):
+        was_admin = hasattr(self, "_pages") and self._pages.currentIndex() == 1
+        if hasattr(self, "_pages"):
+            self._pages.setCurrentIndex(0)
+            self._search.setEnabled(True)
+            self._search.show()
+            self._expand_btn.setEnabled(True)
+            self._keyboard_hint.setText("Ctrl+F  Buscar    ·    Enter  Pegar    ·    Esc  Cerrar")
+        self._select_pinboard(board_id)
+        if was_admin:
+            self._apply_geometry()
+        self._sync_header_density()
+
+    @property
+    def _pinboard_id(self):
+        """One source of truth for integrations using the library's spelling."""
+        return self._current_pinboard_id
+
+    @_pinboard_id.setter
+    def _pinboard_id(self, value):
+        self._current_pinboard_id = value
+
+    def _sync_chip_height(self):
+        # Reserve scrollbar space even before overflow: no header-height jump.
+        buttons = self._chip_scroll.widget().findChildren(QPushButton)
+        for button in buttons:
+            button.ensurePolished()
+        height = max((button.sizeHint().height() for button in buttons), default=0)
+        height += self._chip_scroll.horizontalScrollBar().sizeHint().height()
+        self._chip_scroll.setFixedHeight(height)
+
+    def refresh(self):
+        if (self._current_pinboard_id is not None
+                and self._storage.get_pinboard(self._current_pinboard_id) is None):
+            self._current_pinboard_id = None
+        super().refresh()
+        if self._model.rowCount() == 0:
+            query = self._search.text().strip()
+            if query:
+                self._empty_label.setText(f"Sin resultados para «{query}».\nPrueba con otra palabra.")
+            elif self._current_pinboard_id is not None:
+                self._empty_label.setText("Este pinboard está vacío.\nGuarda elementos desde el menú del historial.")
+            else:
+                self._empty_label.setText("Tu historial empieza aquí.\nCopia texto, imágenes o archivos para guardarlos.")
+        # Preview payloads include images. The persistent cache can retrieve
+        # them again, so retain only the bounded current model in RAM.
+        current_ids = {item.id for item in self._model._items}
+        for key in list(self._preview_data):
+            if key not in current_ids:
+                del self._preview_data[key]
+        if hasattr(self, "_context_label"):
+            board = self._storage.get_pinboard(self._current_pinboard_id) if self._current_pinboard_id is not None else None
+            self._context_label.setText("Pinboards" if self._pages.currentIndex() == 1 else board.name if board else "Historial")
+            self._count_badge.setAccessibleName(f"{self._model.rowCount()} elementos en la vista actual")
+        if hasattr(self, "_sidebar"):
+            self._sidebar.refresh()
+            board_list = self._sidebar._list
+            board_list.blockSignals(True)
+            board_list.setCurrentRow(-1)
+            selected_id = self._editing_id if self._pages.currentIndex() == 1 else self._current_pinboard_id
+            for row in range(board_list.count()):
+                row_id = board_list.item(row).data(Qt.ItemDataRole.UserRole)
+                if row_id == selected_id:
+                    board_list.setCurrentRow(row)
+                    break
+            board_list.blockSignals(False)
+            self._sync_chip_height()
+            if (self._editing_id is not None
+                    and self._storage.get_pinboard(self._editing_id) is None):
+                self._open_editor(self._current_pinboard_id, creating=False)
+
+    def show_pinboard_manager(self, creating=False):
+        self._pages.setCurrentWidget(self._admin_page)
+        self._update_chip_state()
+        self._search.setEnabled(False)
+        self._search.hide()
+        self._context_label.setText("Pinboards")
+        self._expand_btn.setEnabled(False)
+        self._sidebar.refresh()
+        self._open_editor(None if creating else self._current_pinboard_id, creating=creating)
+        self._apply_geometry()
+        if hasattr(self, "_motion"):
+            self._keyboard_hint.setText("Esc  Volver al historial")
+            self._motion.transition(self._admin_page)
+
+    def show_pinboard_management(self):
+        """Tray entry point: show this same panel, then its internal page."""
+        if not self.isVisible():
+            self.show_and_focus()
+        if self.isVisible():
+            self.show_pinboard_manager()
+
+    def close_pinboard_manager(self):
+        was_admin = self._pages.currentIndex() == 1
+        self._pages.setCurrentIndex(0)
+        self._search.setEnabled(True)
+        self._search.show()
+        self._expand_btn.setEnabled(True)
+        self.refresh()
+        self._search.setFocus()
+        if was_admin:
+            self._apply_geometry()
+        if hasattr(self, "_motion"):
+            self._keyboard_hint.setText("Ctrl+F  Buscar    ·    Enter  Pegar    ·    Esc  Cerrar")
+            self._motion.transition(self._pages.currentWidget())
+            self._sync_header_density()
+
+    def _admin_selected(self, board):
+        self._select_pinboard(board.id if board else None)
+
+    def _open_editor(self, board_id, creating=True):
+        board = self._storage.get_pinboard(board_id) if board_id is not None else None
+        self._editing_id = board.id if board else None
+        board_list = self._sidebar._list
+        board_list.blockSignals(True)
+        board_list.setCurrentRow(-1)
+        for row in range(board_list.count()):
+            if board_list.item(row).data(Qt.ItemDataRole.UserRole) == self._editing_id:
+                board_list.setCurrentRow(row)
+        board_list.blockSignals(False)
+        old = self._editor_scroll.takeWidget()
+        if old is not None:
+            old.setParent(self._editor_scroll)
+            old.deleteLater()
+        host = QWidget()
+        host.setObjectName("pinboardDetail")
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(windows_design.BLOCK_GAP)
+        self._right_heading = QLabel(board.name if board else "Nuevo pinboard" if creating else "Tus pinboards")
+        self._right_heading.setObjectName("pinboardDetailHeading")
+        self._right_heading.setTextFormat(Qt.TextFormat.PlainText)
+        self._right_heading.setWordWrap(True)
+        heading_font = self.font()
+        heading_font.setPointSizeF(max(18, heading_font.pointSizeF() * 1.35))
+        heading_font.setBold(True)
+        self._right_heading.setFont(heading_font)
+        self._right_heading.setStyleSheet("font-size: 24px; font-weight: 600;")
+        layout.addWidget(self._right_heading)
+        if board is None and not creating:
+            self._editor = None
+            empty = QLabel("Un lugar para lo importante.\nSelecciona un pinboard o crea uno con + Nuevo.")
+            empty.setObjectName("pinboardDetailEmpty")
+            empty.setWordWrap(True)
+            layout.addWidget(empty)
+            layout.addStretch()
+            self._editor_scroll.setWidget(host)
+            return
+        if board is None:
+            board = Pinboard(0, "", AVAILABLE_COLORS[0], None, 0, 0)
+        self._editor = _InlineEditor(board, host, creating=self._editing_id is None)
+        self._editor.saved.connect(self._save_pinboard)
+        self._editor.cancelled.connect(self.close_pinboard_manager)
+        layout.addWidget(self._editor)
+        if self._editing_id is not None:
+            delete = QPushButton("Eliminar")
+            delete.setObjectName("flat")
+            delete.clicked.connect(lambda: self._delete_pinboard(self._editing_id))
+            self._editor._actions.insertWidget(0, delete)
+        layout.addStretch()
+        self._editor_scroll.setWidget(host)
+        self._editor._name.setFocus()
+
+    def _save_pinboard(self):
+        kwargs = self._editor.result_kwargs()
+        if not kwargs["name"]:
+            return
+        if self._editing_id is None:
+            board = self._storage.create_pinboard(**kwargs)
+            self._editing_id = board.id
+        elif self._storage.get_pinboard(self._editing_id) is not None:
+            self._storage.update_pinboard(self._editing_id, **kwargs)
+        else:
+            self.refresh()
+            self._open_editor(None)
+            return
+        self._select_pinboard(self._editing_id)
+        self._feedback_label.show()
+        self._feedback_timer.start()
+
+    def _delete_pinboard(self, board_id):
+        board = self._storage.get_pinboard(board_id) if board_id is not None else None
+        if board is None:
+            return
+        answer = QMessageBox.question(
+            self, "Eliminar pinboard", f"¿Eliminar «{board.name}»? Los clips se conservarán en Historial.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._storage.delete_pinboard(board_id)
+        self.refresh()
+        self._open_editor(self._current_pinboard_id, creating=False)
+
+    def _select_pinboard(self, pinboard_id):
+        previous = self._current_pinboard_id
+        super()._select_pinboard(pinboard_id)
+        if hasattr(self, "_pages") and self._pages.currentIndex() == 1:
+            self._open_editor(self._current_pinboard_id, creating=False)
+        if previous != pinboard_id and hasattr(self, "_motion"):
+            self._motion.transition(self._pages.currentWidget())
+
+    def _quick_paste(self, n):
+        if self._pages.currentIndex() == 0:
+            super()._quick_paste(n)
+
+    def _on_preview_ready(self, item_id, data):
+        if self._model.row_for_id(item_id) >= 0:
+            super()._on_preview_ready(item_id, data)
+
+    def _toggle_expanded(self):
+        if self._pages.currentIndex() == 0:
+            super()._toggle_expanded()
+            if hasattr(self, "_motion"):
+                p = windows_design.palette()
+                self._expand_btn.setText("Contraer" if self._expanded else "Expandir")
+                self._expand_btn.setIcon(windows_design.icon("up" if self._expanded else "down", p.muted, 14))
+                self._sync_header_density()
+                self._motion.transition(self._pages.currentWidget())
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape and self._pages.currentIndex() == 1:
+            self.close_pinboard_manager()
+            return
+        super().keyPressEvent(event)
+
+    def _apply_geometry(self):
+        """One measured placement in logical pixels, above the work-area edge.
+
+        Polish before measuring, rather than showing at one position then
+        moving on a timer. Administration intentionally has a taller viewport;
+        neither page can impose its own minimum on the top-level window.
+        """
+        screen = self.resolve_target_screen()
+        if screen is None:
+            return False
+        self.ensurePolished()
+        self._sync_chip_height()
+        outer = self.layout().contentsMargins()
+        margins = self._surface_layout.contentsMargins()
+        chrome = (self._chrome.sizeHint().height() + outer.top() + outer.bottom()
+                  + margins.top() + margins.bottom() + self._surface_layout.spacing() * 2
+                  + (self._footer.sizeHint().height() if hasattr(self, "_footer") else 0))
+        avail = screen.availableGeometry()
+        # Windows owns its edge clearances and content width; do not alter the
+        # shared Linux panel geometry policy.
+        target_width = min(950, max(760, round(avail.width() * .47)))
+        if avail.width() < avail.height():
+            target_width = 744
+        width = min(target_width, max(1, avail.width() - 2 * windows_design.WORKAREA_SIDE))
+        card_height = 184 if avail.height() >= 800 else 160
+        wanted = max(round(avail.height() * .4), chrome + 2 * (card_height + 4) + 8) if self._expanded else card_height + 16 + chrome
+        if self._pages.currentIndex() == 1:
+            wanted = chrome + 440
+        height = min(wanted, max(1, avail.height() - 2 * windows_design.WORKAREA_BOTTOM))
+        if height - chrome < 164:
+            card_height = 148
+        self._delegate.set_card_height(card_height)
+        # Fit complete columns, accounting for the vertical scrollbar. Four
+        # 216px slots narrowly miss the 900px panel; don't waste an entire column.
+        usable = max(1, width - margins.left() - margins.right() - (8 if self._expanded else 0))
+        columns = max(1, round(usable / 220))
+        card_width = min(216, max(180, usable // columns - 4)) if self._expanded else 216
+        self._delegate.set_card_width(card_width)
+        self._list.setGridSize(QSize(card_width + 4, card_height + 4))
+        body_height = max(0, height - chrome)
+        self._list.setFixedHeight(body_height)
+        self._empty_label.setFixedHeight(body_height)
+        self._pages.setFixedHeight(body_height)
+        self.layout().invalidate()
+        self.layout().activate()
+        x = avail.x() + (avail.width() - width) // 2
+        y = avail.bottom() + 1 - height - windows_design.WORKAREA_BOTTOM
+        self.setGeometry(QRect(x, max(avail.top(), y), width, height))
+        return True
+
+    def show_and_focus(self):
+        self.close_pinboard_manager()
+        self._expanded = False
+        self._list.setWrapping(False)
+        self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._expand_btn.setText("Expandir")
+        if hasattr(self, "_motion"):
+            self._expand_btn.setIcon(windows_design.icon("down", windows_design.palette().muted, 14))
+            self._sync_header_density()
+        if not self._apply_geometry():
+            return
+        self._pending_focus_claim = True
+        self._motion.show(self)
+        self.raise_()
+        self.activateWindow()
+        if QApplication.platformName() == "windows":
+            activate_foreground_window(int(self.internalWinId()))
+        if self.isActiveWindow():
+            self._pending_focus_claim = False
+            self._search.setFocus()
+            self._search.selectAll()
+        # close_pinboard_manager() already refreshed data before measuring.
+        # Repeating the query/model reset after show doubles opening work and
+        # can overwrite a keyboard selection on the next event-loop turn.
+
+    def fade_hide(self):
+        self._motion.hide(self)
+
+    def is_dismissing(self):
+        return self._motion.is_dismissing()
