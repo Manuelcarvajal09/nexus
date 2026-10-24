@@ -263,12 +263,12 @@ def _run_windows(lifetime):
     theme_menu = menu.addMenu("Estilo")
     theme_actions = {}
     def apply_theme(key):
-        styles.set_active_theme(key); styles.clear_icon_cache(); app.setStyleSheet(styles.qss())
+        styles.set_active_theme(key); styles.clear_icon_cache(); app.setStyleSheet(windows_design.qss())
         apply_native_theme_material()
         for action, action_key in theme_actions.items(): action.setChecked(action_key == key)
         timeline.set_theme_selection(key)
-        library.refresh(); library.refresh_sidebar_icons(); timeline.refresh(); stack_window.refresh()
-    for theme_key, theme_label in styles.theme_choices():
+        timeline.apply_visual_theme(); stack_window.apply_visual_theme()
+    for theme_key, theme_label in windows_design.theme_choices():
         action = theme_menu.addAction(theme_label); action.setCheckable(True)
         action.setChecked(theme_key == styles.active_theme().key)
         action.triggered.connect(lambda _checked, key=theme_key: apply_theme(key))
