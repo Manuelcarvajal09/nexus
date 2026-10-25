@@ -345,6 +345,9 @@ def _run_windows(lifetime):
     lifetime.callback(root.removeHandler, handler)
     set_app_user_model_id()  # before any window: taskbar identity + icon are Nexus', not pythonw's
     app = QApplication(sys.argv); app.setApplicationName("Nexus"); app.setWindowIcon(app_icon())
+    logging.getLogger("nexus.startup").info(
+        "run platform=%s sandbox=%s data=%s code=%s", app.platformName(), windows_sandbox.active(),
+        paths.DATA_DIR.parent, Path(__file__).resolve().parent)
     app.setQuitOnLastWindowClosed(False); app.setFont(windows_design.font()); app.setStyleSheet(windows_design.qss())
     settings = windows_sandbox.apply_settings(load_settings())
     shortcut_store = ShortcutStore(settings, windows_sandbox.default_overrides())
