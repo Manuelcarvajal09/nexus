@@ -27,6 +27,18 @@ def normalize_for_search(text: str) -> str:
     return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
 
 
+TITLE_MAX_LENGTH = 80
+
+
+def normalize_title(title: Optional[str]) -> Optional[str]:
+    """A title is a one-line label: whitespace (including newlines) collapses
+    to single spaces, it is cut at TITLE_MAX_LENGTH, and blank means "no title"."""
+    if not title:
+        return None
+    cleaned = " ".join(title.split())[:TITLE_MAX_LENGTH].rstrip()
+    return cleaned or None
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS clip_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,7 +51,9 @@ CREATE TABLE IF NOT EXISTS clip_items (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
     pinned INTEGER NOT NULL DEFAULT 0,
-    search_text TEXT
+    search_text TEXT,
+    title TEXT,
+    title_search TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_clip_items_updated_at ON clip_items(updated_at DESC);
 
@@ -125,6 +139,8 @@ class ClipItem:
     created_at: float
     updated_at: float
     pinboard_ids: list[int] = field(default_factory=list)
+    # User-assigned label shown in the UI; never part of the pasted payload.
+    title: Optional[str] = None
 
     @property
     def is_pinned(self) -> bool:
@@ -175,6 +191,18 @@ class StorageService:
         self._conn.executescript(SCHEMA)
         self._conn.commit()
         self._migrate_search_text()
+        self._migrate_title()
+
+    def _migrate_title(self) -> None:
+        """Additive and idempotent: databases created before titles existed get
+        two nullable columns; no existing row is rewritten. Linux ignores them."""
+        columns = [row[1] for row in self._conn.execute("PRAGMA table_info(clip_items)")]
+        for name in ("title", "title_search"):
+            if name not in columns:
+                self._conn.execute(f"ALTER TABLE clip_items ADD COLUMN {name} TEXT")
+        self._conn.commit()
+        columns = [row[1] for row in self._conn.execute("PRAGMA table_info(clip_items)")]
+        self._title_index = columns.index("title")
 
     def _migrate_search_text(self) -> None:
         """CREATE TABLE IF NOT EXISTS never adds columns to a table that
@@ -275,24 +303,48 @@ class StorageService:
             )
             self._conn.commit()
 
+    def set_title(self, item_id: int, title: Optional[str]) -> Optional[str]:
+        """Sets (or, when blank, removes) the clip's label and returns what was
+        stored. Only the label columns change: the pasted content, its hash and
+        its timestamps are untouched."""
+        stored = normalize_title(title)
+        cur = self._conn.execute(
+            "UPDATE clip_items SET title = ?, title_search = ? WHERE id = ?",
+            (stored, normalize_for_search(stored) if stored else None, item_id),
+        )
+        self._conn.commit()
+        return stored if cur.rowcount else None
+
+    def _select_recent(self, joins: str, where: list, params: list, limit: int) -> list:
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        return self._conn.execute(
+            f"""SELECT clip_items.* FROM clip_items {joins} {where_sql}
+                ORDER BY updated_at DESC LIMIT ?""",
+            [*params, limit],
+        ).fetchall()
+
     def recent(self, limit: int = 200, query: str = "", pinboard_id: Optional[int] = None) -> list[ClipItem]:
-        where = []
+        where: list = []
         params: list = []
         joins = ""
         if pinboard_id is not None:
             joins = "JOIN pinboard_items pi ON pi.item_id = clip_items.id"
             where.append("pi.pinboard_id = ?")
             params.append(pinboard_id)
-        if query:
-            where.append("search_text LIKE ?")
-            params.append(f"%{normalize_for_search(query)}%")
-        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
-        params.append(limit)
-        rows = self._conn.execute(
-            f"""SELECT clip_items.* FROM clip_items {joins} {where_sql}
-                ORDER BY updated_at DESC LIMIT ?""",
-            params,
-        ).fetchall()
+        if not query:
+            return self._rows_to_items(self._select_recent(joins, where, params, limit))
+        # Title matches first, then content-only matches, each most-recent-first.
+        # Two ordered passes keep the updated_at index usable (a CASE in ORDER BY
+        # would sort every match) and stop early once `limit` rows are found.
+        pattern = f"%{normalize_for_search(query)}%"
+        rows = self._select_recent(joins, [*where, "title_search LIKE ?"], [*params, pattern], limit)
+        remaining = limit - len(rows)
+        if remaining > 0:
+            content_where, content_params = [*where, "search_text LIKE ?"], [*params, pattern]
+            if rows:
+                content_where.append(f"clip_items.id NOT IN ({','.join('?' * len(rows))})")
+                content_params.extend(row[0] for row in rows)
+            rows = rows + self._select_recent(joins, content_where, content_params, remaining)
         return self._rows_to_items(rows)
 
     def delete(self, item_id: int) -> None:
@@ -302,7 +354,7 @@ class StorageService:
     def purge_older_than(self, days: int) -> int:
         cutoff = time.time() - days * 86400
         cur = self._conn.execute(
-            """DELETE FROM clip_items WHERE updated_at < ? AND id NOT IN
+            """DELETE FROM clip_items WHERE updated_at < ? AND title IS NULL AND id NOT IN
                (SELECT DISTINCT item_id FROM pinboard_items)""",
             (cutoff,),
         )
@@ -510,6 +562,7 @@ class StorageService:
             created_at=row[7],
             updated_at=row[8],
             pinboard_ids=self.pinboards_for_item(item_id),
+            title=row[self._title_index],
         )
 
     def _rows_to_items(self, rows) -> list[ClipItem]:
@@ -523,6 +576,7 @@ class StorageService:
                 image_data=row[4], file_path=row[5], source_app=row[6],
                 created_at=row[7], updated_at=row[8],
                 pinboard_ids=pinboard_map.get(row[0], []),
+                title=row[self._title_index],
             )
             for row in rows
         ]

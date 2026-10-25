@@ -8,7 +8,7 @@ from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 from . import paths, styles, type_detection
-from . import windows_design
+from . import windows_design, windows_sandbox
 from .windows_backdrop import BackdropController, NativeBackend
 from .preview_service import PreviewService
 from .windows_stack import WindowsClipStack, WindowsStackWindow
@@ -101,6 +101,7 @@ def main():
         return _run_windows(lifetime)
 
 def _run_windows(lifetime):
+    windows_sandbox.assert_isolated()
     paths.ensure_dirs()
     handler = logging.FileHandler(paths.LOG_PATH, encoding="utf-8")
     handler.addFilter(ClipboardPrivacyFilter())
@@ -114,7 +115,7 @@ def _run_windows(lifetime):
     lifetime.callback(root.removeHandler, handler)
     app = QApplication(sys.argv); app.setApplicationName("Nexus")
     app.setQuitOnLastWindowClosed(False); app.setFont(windows_design.font()); app.setStyleSheet(windows_design.qss())
-    settings = load_settings()
+    settings = windows_sandbox.apply_settings(load_settings())
     storage = StorageService()
     lifetime.callback(storage.close)
     retention_days = effective_retention_days(settings)

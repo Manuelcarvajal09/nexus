@@ -139,6 +139,20 @@ class WindowsClipCardDelegate(ClipCardDelegate):
         self._starts.clear()
         self._targets.clear()
 
+    TITLE_HEIGHT = 20
+
+    def set_editing_item(self, item_id):
+        """While the inline title editor covers a card, its title is not painted
+        underneath it (the editor background can be translucent)."""
+        self._editing_item_id = item_id
+
+    @classmethod
+    def title_rect(cls, card_rect):
+        """Where a custom title is drawn (and edited) inside a card's rect."""
+        outer = QRectF(card_rect.adjusted(CARD_MARGIN, CARD_MARGIN, -CARD_MARGIN, -CARD_MARGIN))
+        _, body, _ = cls._regions(outer)
+        return QRectF(body.left(), body.top(), body.width(), cls.TITLE_HEIGHT)
+
     @staticmethod
     def _regions(outer):
         """Disjoint clipping budgets, including at the 148px minimum."""
@@ -224,6 +238,18 @@ class WindowsClipCardDelegate(ClipCardDelegate):
             painter.setPen(QColor(tokens.muted))
             painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, str(index.row() + 1))
         painter.restore()
+        custom_title = getattr(item, "title", None)
+        content_color = tokens.text
+        if custom_title:
+            # The label heads the body; the real content shrinks and dims below.
+            if item.id != getattr(self, "_editing_item_id", None):
+                painter.save()
+                painter.setClipRect(self.title_rect(option.rect), Qt.ClipOperation.IntersectClip)
+                self._text(painter, self.title_rect(option.rect), custom_title, 13, tokens.text, QFont.Weight.DemiBold)
+                painter.restore()
+            body = QRectF(body.left(), body.top() + self.TITLE_HEIGHT + 2,
+                          body.width(), max(14.0, body.height() - self.TITLE_HEIGHT - 2))
+            content_color = tokens.muted
         painter.save()
         painter.setClipRect(body, Qt.ClipOperation.IntersectClip)
         preview = self._preview_data.get(item.id) or {}
@@ -245,7 +271,7 @@ class WindowsClipCardDelegate(ClipCardDelegate):
             domain = preview.get("domain") or urlparse(text if "://" in text else "https://" + text).hostname or text
             title = preview.get("title") or domain
             title_rect = text_rect.adjusted(0, 0, 0, -18)
-            self._text(painter, title_rect, title, 14, tokens.text, QFont.Weight.DemiBold)
+            self._text(painter, title_rect, title, 14 if not custom_title else 12, content_color, QFont.Weight.DemiBold)
             self._text(painter, QRectF(body.left(), body.bottom() - 15, body.width(), 15), domain, 11, tokens.muted)
         elif detected == "color":
             swatch = QRectF(body.left(), body.top(), 30, body.height())
@@ -254,7 +280,7 @@ class WindowsClipCardDelegate(ClipCardDelegate):
         elif detected != "image" or not image:
             if detected == "file":
                 text = (item.file_path or "").replace("\\", "/").rsplit("/", 1)[-1] or "Archivo"
-            self._text(painter, text_rect, text or "Vista previa no disponible", 13, tokens.text,
+            self._text(painter, text_rect, text or "Vista previa no disponible", 13, content_color,
                        mono=detected in ("code", "json", "command"))
         painter.restore()
         painter.save()

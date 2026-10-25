@@ -47,7 +47,10 @@ class ClipRowWidget(QWidget):
 
         text_col = QVBoxLayout()
         text_col.setSpacing(2)
-        title = QLabel(item.preview(64))
+        # A user-assigned title is only a label; the preview of the real
+        # content moves to the meta line so the row stays recognizable.
+        custom_title = getattr(item, "title", None)
+        title = QLabel(custom_title or item.preview(64))
         title.setObjectName("rowTitle")
         # Clipboard contents can be arbitrarily long (shell commands, URLs,
         # JSON). They should clip inside the card, never dictate a wider list.
@@ -60,6 +63,8 @@ class ClipRowWidget(QWidget):
             meta_parts.insert(0, f"#{position}")
         if getattr(item, "is_pinned", False):
             meta_parts.append("anclado")
+        if custom_title:
+            meta_parts.append(item.preview(40))
         meta = QLabel("  ·  ".join(meta_parts))
         meta.setObjectName("rowMeta")
         meta.setMinimumWidth(0)

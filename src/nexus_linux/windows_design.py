@@ -207,6 +207,11 @@ def qss() -> str:
     QListWidget#sidebarList::item:selected {{ background: {p.accent_fill}; color: {p.accent}; font-weight: 600; }}
     QListWidget#sidebarList::item:hover {{ background: {card_bg}; color: {p.text}; }}
     QLabel#emptyState {{ color: {p.muted}; font-size: 14px; padding: 20px; background: transparent; border: none; }}
+    QLineEdit#titleEditor {{ padding: 0 6px; border-radius: 7px; font-size: 13px; font-weight: 600;
+        background: {card_hover}; border: 1px solid {p.accent}; }}
+    QDialog#detailsDialog {{ background: {menu_bg}; border: 1px solid {control_border_hover}; }}
+    QLabel#detailKey {{ color: {p.faint}; font-size: 11px; }}
+    QLabel#detailValue {{ color: {p.text}; font-size: 12px; }}
     QMenu, QToolTip, QMessageBox {{ background: {menu_bg}; color: {p.text}; border: 1px solid {control_border_hover}; border-radius: 11px; }}
     QMenu {{ padding: 6px; }}
     QMenu::item {{ padding: 8px 24px 8px 12px; border-radius: 7px; color: {p.muted}; font-size: 12px; }}

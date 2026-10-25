@@ -313,6 +313,7 @@ class TimelineWindow(QWidget):
         paste_action = menu.addAction("Pegar")
         plain_action = menu.addAction("Pegar como texto plano")
         copy_action = menu.addAction("Copiar nuevamente")
+        extra_actions = self._extend_item_menu(menu, item)
         pin_menu = menu.addMenu("Pinboards")
         boards = self._storage.list_pinboards()
         board_actions = {}
@@ -343,13 +344,28 @@ class TimelineWindow(QWidget):
             else:
                 self._storage.add_to_pinboard(item.id, board_id)
             self.refresh()
+        elif chosen in extra_actions:
+            extra_actions[chosen]()
         elif chosen == manage_action:
             self.manage_pinboards_requested.emit()
         elif chosen == details_action:
-            QMessageBox.information(self, "Detalles", f"Tipo: {item.kind}\nOrigen: {item.source_app or 'desconocido'}\nID local: {item.id}")
+            self._show_item_details(item)
         elif chosen == delete_action:
-            self._storage.delete(item.id)
-            self.refresh()
+            if self._confirm_delete(item):
+                self._storage.delete(item.id)
+                self.refresh()
+
+    # Hooks for platform layers; the defaults reproduce the original behavior.
+
+    def _extend_item_menu(self, menu, item) -> dict:
+        """Add platform actions to a card's context menu; return {action: callback}."""
+        return {}
+
+    def _show_item_details(self, item) -> None:
+        QMessageBox.information(self, "Detalles", f"Tipo: {item.kind}\nOrigen: {item.source_app or 'desconocido'}\nID local: {item.id}")
+
+    def _confirm_delete(self, item) -> bool:
+        return True
 
     def _quick_paste(self, n: int) -> None:
         item = self._model.item_at(n - 1)

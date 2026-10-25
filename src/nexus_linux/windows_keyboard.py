@@ -4,6 +4,7 @@ import ctypes, logging, os, threading, time, uuid
 from dataclasses import dataclass
 from ctypes import wintypes
 from PySide6.QtCore import QObject, Signal
+from . import windows_sandbox
 from .windows_platform import NEXUS_INPUT_MARKER, FocusTarget, capture_focus_target
 
 WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN, WM_KEYUP, WM_SYSKEYUP, WM_QUIT = 13, 0x0100, 0x0104, 0x0101, 0x0105, 0x0012
@@ -70,6 +71,7 @@ class WindowsPasteWatcher(QObject):
             return swallowed
         return False
     def start(self, enabled=True):
+        if not windows_sandbox.hook_allowed(): return
         if self._thread and self._thread.is_alive(): return
         self._stopping.clear()
         self.set_enabled(enabled)

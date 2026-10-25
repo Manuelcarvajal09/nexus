@@ -4,16 +4,16 @@ No library window or persisted geometry is needed. Shared Timeline/storage
 behavior is retained; the embedded editor and layout are Windows-only.
 """
 
-from PySide6.QtCore import QRect, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QBoxLayout, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QMenu, QMessageBox, QPushButton, QScrollArea,
-    QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
+    QApplication, QBoxLayout, QDialog, QDialogButtonBox, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QMenu, QMessageBox,
+    QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .pinboard_editor import _swatch_pixmap
 from .pinboard_sidebar import HISTORY_ROW_ID, PinboardSidebar
-from .storage import AVAILABLE_COLORS, SUGGESTED_EMOJI, Pinboard
+from .storage import AVAILABLE_COLORS, SUGGESTED_EMOJI, TITLE_MAX_LENGTH, Pinboard, normalize_title
 from .timeline_window import TimelineWindow
 from . import windows_design
 from .windows_card_delegate import WindowsClipCardDelegate
@@ -206,6 +206,106 @@ class _InlineSidebar(PinboardSidebar):
             self.changed.emit()
 
 
+class _TitleEditor(QLineEdit):
+    """Inline editor for a clip's title, drawn over the card's title line.
+
+    It owns every key it needs while open: Enter saves (and never pastes), Esc
+    cancels (and never hides the panel), Tab stays here, and Ctrl+1..9 / Ctrl+F
+    are not hijacked by the panel's global shortcuts."""
+
+    committed = Signal(str)
+    cancelled = Signal()
+
+    def __init__(self, text, parent):
+        super().__init__(text, parent)
+        self.setObjectName("titleEditor")
+        self.setMaxLength(TITLE_MAX_LENGTH)
+        self.setPlaceholderText("Añadir título")
+        self.setAccessibleName("Título del elemento")
+        self._finished = False
+
+    def finish(self, commit):
+        if self._finished:
+            return
+        self._finished = True
+        if commit:
+            self.committed.emit(self.text())
+        else:
+            self.cancelled.emit()
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            event.accept()
+            self.finish(True)
+        elif event.key() == Qt.Key.Key_Escape:
+            event.accept()
+            self.finish(False)
+        else:
+            super().keyPressEvent(event)
+
+    def event(self, event):
+        kind = event.type()
+        if kind == QEvent.Type.ShortcutOverride:
+            key = event.key()
+            ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            if (ctrl and (Qt.Key.Key_1 <= key <= Qt.Key.Key_9 or key == Qt.Key.Key_F)) or key == Qt.Key.Key_F2:
+                event.accept()
+                return True
+        elif kind == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+            event.accept()
+            return True
+        return super().event(event)
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.finish(True)
+
+
+class _DetailsDialog(QDialog):
+    """Compact "Detalles" with the editable title; the panel stays the owner."""
+
+    def __init__(self, item, board_names, parent):
+        super().__init__(parent)
+        self.setObjectName("detailsDialog")
+        self.setWindowTitle("Detalles")
+        self.setModal(True)
+        self.setMinimumWidth(360)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 18, 20, 16)
+        root.setSpacing(windows_design.INTERNAL_GAP)
+        root.addWidget(self._key("Título"))
+        self.title_edit = QLineEdit(item.title or "")
+        self.title_edit.setMaxLength(TITLE_MAX_LENGTH)
+        self.title_edit.setPlaceholderText("Sin título")
+        self.title_edit.setAccessibleName("Título del elemento")
+        root.addWidget(self.title_edit)
+        for key, value in (
+            ("Tipo", item.kind), ("Origen", item.source_app or "desconocido"),
+            ("Pinboards", ", ".join(board_names) or "ninguno"), ("ID local", str(item.id)),
+        ):
+            root.addWidget(self._key(key))
+            label = QLabel(value)
+            label.setObjectName("detailValue")
+            label.setTextFormat(Qt.TextFormat.PlainText)
+            label.setWordWrap(True)
+            root.addWidget(label)
+        buttons = QDialogButtonBox()
+        save = buttons.addButton("Guardar", QDialogButtonBox.ButtonRole.AcceptRole)
+        save.setObjectName("primary")
+        buttons.addButton("Cerrar", QDialogButtonBox.ButtonRole.RejectRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+        self.title_edit.setFocus()
+        self.title_edit.selectAll()
+
+    @staticmethod
+    def _key(text):
+        label = QLabel(text)
+        label.setObjectName("detailKey")
+        return label
+
+
 class WindowsTimelineWindow(TimelineWindow):
     def __init__(self, storage, paste_service, preview_service=None, parent=None):
         super().__init__(storage, paste_service, preview_service, parent)
@@ -213,6 +313,13 @@ class WindowsTimelineWindow(TimelineWindow):
         self._persistent_when_inactive = True
         self._editor = None
         self._editing_id = None
+        self._title_editor = None
+        self._title_item_id = None
+        rename = QShortcut(QKeySequence("F2"), self)
+        rename.activated.connect(self.begin_title_edit)
+        self._model.modelReset.connect(self._sync_title_editor)
+        for bar in (self._list.horizontalScrollBar(), self._list.verticalScrollBar()):
+            bar.valueChanged.connect(self._sync_title_editor)
         self.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
 
         # Replace only the chip layout's host. Its natural minimum width must
@@ -717,6 +824,88 @@ class WindowsTimelineWindow(TimelineWindow):
         if self._model.row_for_id(item_id) >= 0:
             super()._on_preview_ready(item_id, data)
 
+    # -- titles ------------------------------------------------------------
+
+    def _extend_item_menu(self, menu, item):
+        action = menu.addAction("Renombrar…\tF2")
+        return {action: lambda item_id=item.id: self.begin_title_edit(item_id)}
+
+    def begin_title_edit(self, item_id=None):
+        """Open the inline title editor over a card (the current one by default)."""
+        if self._title_editor is not None or self._pages.currentIndex() != 0:
+            return False
+        if item_id is None:
+            index = self._list.currentIndex()
+            item = self._model.item_at(index.row()) if index.isValid() else None
+        else:
+            item = self._model.item_at(self._model.row_for_id(item_id))
+        if item is None:
+            return False
+        self._list.scrollTo(self._model.index(self._model.row_for_id(item.id), 0))
+        editor = _TitleEditor(item.title or "", self._list.viewport())
+        editor.committed.connect(lambda text, item_id=item.id: self._finish_title_edit(item_id, text))
+        editor.cancelled.connect(lambda item_id=item.id: self._finish_title_edit(item_id, None))
+        self._title_editor, self._title_item_id = editor, item.id
+        self._delegate.set_editing_item(item.id)
+        self._sync_title_editor()
+        editor.show()
+        editor.setFocus()
+        editor.selectAll()
+        self._list.viewport().update()
+        return True
+
+    def _sync_title_editor(self, *_):
+        """Keep the editor on its card across refreshes, scrolling and resizes."""
+        if self._title_editor is None:
+            return
+        row = self._model.row_for_id(self._title_item_id)
+        if row < 0:
+            self._title_editor.finish(False)
+            return
+        rect = self._delegate.title_rect(self._list.visualRect(self._model.index(row, 0))).toRect()
+        self._title_editor.setGeometry(rect.adjusted(-4, -2, 4, 2))
+
+    def _commit_open_title_edit(self):
+        if self._title_editor is not None:
+            self._title_editor.finish(True)
+
+    def _finish_title_edit(self, item_id, text):
+        editor, self._title_editor, self._title_item_id = self._title_editor, None, None
+        self._delegate.set_editing_item(None)
+        if editor is not None:
+            editor.hide()
+            editor.deleteLater()
+        if text is not None:
+            self._apply_title(item_id, text)
+        else:
+            self._list.viewport().update()
+        self._list.setFocus()
+
+    def _apply_title(self, item_id, text):
+        current = self._storage.get(item_id)
+        if current is not None and normalize_title(text) != current.title:
+            self._storage.set_title(item_id, text)
+            self.refresh()
+        row = self._model.row_for_id(item_id)
+        if row >= 0:
+            self._list.setCurrentIndex(self._model.index(row, 0))
+
+    def _show_item_details(self, item):
+        names = [b.display_name for b in self._storage.list_pinboards() if b.id in item.pinboard_ids]
+        dialog = _DetailsDialog(item, names, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._apply_title(item.id, dialog.title_edit.text())
+
+    def _confirm_delete(self, item):
+        if not item.title:
+            return True
+        answer = QMessageBox.question(
+            self, "Eliminar elemento", f"¿Eliminar «{item.title}»? También se perderá su título.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     def _toggle_expanded(self):
         if self._pages.currentIndex() == 0:
             super()._toggle_expanded()
@@ -784,6 +973,7 @@ class WindowsTimelineWindow(TimelineWindow):
         return True
 
     def show_and_focus(self):
+        self._commit_open_title_edit()
         self.close_pinboard_manager()
         self._expanded = False
         self._list.setWrapping(False)
@@ -809,6 +999,7 @@ class WindowsTimelineWindow(TimelineWindow):
         # can overwrite a keyboard selection on the next event-loop turn.
 
     def fade_hide(self):
+        self._commit_open_title_edit()
         self._motion.hide(self)
 
     def is_dismissing(self):

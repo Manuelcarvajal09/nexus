@@ -242,7 +242,10 @@ def apply_liquid_glass_backdrop(hwnd: int, enabled: bool) -> bool:
         WCA_ACCENT_POLICY, ctypes.cast(ctypes.byref(policy), ctypes.c_void_p), ctypes.sizeof(policy)
     )
     return bool(setter(hwnd, ctypes.byref(data)))
-def acquire_single_instance_mutex(name="Local\\NexusWindowsErwin"):
+def acquire_single_instance_mutex(name=None):
+    if name is None:
+        from . import windows_sandbox
+        name = windows_sandbox.mutex_name("Local\\NexusWindowsErwin")
     handle = kernel32.CreateMutexW(None, False, name)
     if not handle or ctypes.get_last_error() == 183:
         if handle: kernel32.CloseHandle(handle)
