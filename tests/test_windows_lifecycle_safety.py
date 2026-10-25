@@ -10,26 +10,27 @@ from nexus_linux.windows_settings import DEFAULTS
 from nexus_linux.windows_platform import FocusTarget
 
 
-def test_partial_hotkey_registration_unwinds_successful_registration(monkeypatch):
+def test_failed_hotkey_never_aborts_startup_and_successful_ones_stay(monkeypatch, qapp):
     registered, removed = [], []
-    def register(hwnd, identifier, key):
+    def register(hwnd, identifier, key, modifiers=None):
         registered.append(identifier)
         return identifier == app.PANEL_HOTKEY
     monkeypatch.setattr(app, "register_hotkey", register)
+    monkeypatch.setattr(app, "last_hotkey_error", lambda: 1409)
     monkeypatch.setattr(app, "unregister_hotkey", lambda hwnd, identifier: removed.append(identifier))
-    with pytest.raises(RuntimeError), ExitStack() as cleanup:
-        app.register_configured_hotkeys(123, DEFAULTS, cleanup)
-    assert registered == [app.PANEL_HOTKEY, app.STACK_HOTKEY]
+    hotkeys = app.GlobalHotkeys(123, app.ShortcutStore(dict(DEFAULTS)), lambda: None)
+    hotkeys.register_all()  # must not raise
+    assert set(hotkeys.registered) == {"panel"} and "stack" in hotkeys.failures
+    assert "Otra aplicación" in hotkeys.failures["stack"] and hotkeys.notices
+    hotkeys.close()
     assert removed == [app.PANEL_HOTKEY]
 
 
-def test_hotkey_conflict_is_detected_before_native_registration(monkeypatch):
-    calls = []
-    monkeypatch.setattr(app, "register_hotkey", lambda *args: calls.append(args))
+def test_hotkey_conflict_in_settings_is_repaired_before_native_registration():
     settings = {**DEFAULTS, "stack_hotkey": DEFAULTS["panel_hotkey"]}
-    with pytest.raises(ValueError), ExitStack() as cleanup:
-        app.register_configured_hotkeys(123, settings, cleanup)
-    assert not calls
+    store = app.ShortcutStore(settings)
+    assert store.sanitize()
+    assert store.get("panel") != store.get("stack")
 
 
 def test_startup_exception_releases_instance_mutex(monkeypatch):

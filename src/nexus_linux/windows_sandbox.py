@@ -46,6 +46,14 @@ def apply_settings(settings: dict) -> dict:
     return {**settings, **SANDBOX_HOTKEYS, "paused": True}
 
 
+def default_overrides() -> dict:
+    """Defaults the shortcut store must fall back to: a sandbox never "resets"
+    onto the real Nexus's hotkeys."""
+    if not active():
+        return {}
+    return {"panel": SANDBOX_HOTKEYS["panel_hotkey"], "stack": SANDBOX_HOTKEYS["stack_hotkey"]}
+
+
 def hook_allowed() -> bool:
     return not active() or os.environ.get(ENV_ALLOW_HOOK) == "1"
 

@@ -207,6 +207,16 @@ def qss() -> str:
     QLabel#emptyState {{ color: {p.muted}; font-size: 14px; padding: 20px; background: transparent; border: none; }}
     QLineEdit#titleEditor {{ padding: 0 6px; border-radius: 7px; font-size: 13px; font-weight: 600;
         background: {card_hover}; border: 1px solid {p.accent}; }}
+    QLabel#settingsHeading {{ color: {p.text}; font-size: 14px; font-weight: 600; }}
+    QLabel#settingsSub, QLabel#shortcutHint {{ color: {p.muted}; font-size: 11px; }}
+    QLabel#shortcutLabel {{ color: {p.text}; font-size: 12px; font-weight: 600; }}
+    QLabel#scopePill {{ background: {control_bg}; color: {p.muted}; border-radius: 7px; padding: 2px 8px; font-size: 10px; font-weight: 600; }}
+    QLabel#scopePill[scope="global"] {{ background: {p.accent_fill}; color: {p.accent}; }}
+    QLabel#keyPill {{ background: transparent; color: {p.muted}; border: 1px dashed {control_border}; border-radius: 9px; padding: 6px 10px; font-size: 12px; }}
+    QLabel#statusOk {{ color: {p.accent}; font-size: 11px; }}
+    QLabel#statusError {{ color: #e07a6f; font-size: 11px; }}
+    QKeySequenceEdit#keyEdit QLineEdit {{ padding: 6px 10px; border-radius: 9px; font-size: 12px; font-weight: 600; }}
+    QPushButton#captureToggle {{ padding: 8px 16px; font-size: 12px; }}
     QDialog#detailsDialog {{ background: {menu_bg}; border: 1px solid {control_border_hover}; }}
     QLabel#detailKey {{ color: {p.faint}; font-size: 11px; }}
     QLabel#detailValue {{ color: {p.text}; font-size: 12px; }}

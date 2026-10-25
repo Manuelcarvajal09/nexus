@@ -178,8 +178,15 @@ def restore_focus_target(target: FocusTarget | None, nexus_pid: int) -> bool:
         if attached_target: user32.AttachThreadInput(current_thread, target.thread_id, False)
     return foreground_window() == target.window
 
-def register_hotkey(hwnd: int, identifier: int, virtual_key: int) -> bool:
-    return bool(user32.RegisterHotKey(hwnd, identifier, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, virtual_key))
+ERROR_HOTKEY_ALREADY_REGISTERED = 1409
+
+def register_hotkey(hwnd: int, identifier: int, virtual_key: int, modifiers: int = MOD_CONTROL | MOD_SHIFT) -> bool:
+    """`modifiers` use the RegisterHotKey flags (Alt=1, Ctrl=2, Shift=4, Win=8)."""
+    return bool(user32.RegisterHotKey(hwnd, identifier, modifiers | MOD_NOREPEAT, virtual_key))
+
+def last_hotkey_error() -> int:
+    """Win32 error of the most recent failed register_hotkey on this thread."""
+    return ctypes.get_last_error()
 
 def unregister_hotkey(hwnd: int, identifier: int) -> None:
     user32.UnregisterHotKey(hwnd, identifier)

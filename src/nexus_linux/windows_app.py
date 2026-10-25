@@ -17,10 +17,11 @@ from .windows_timeline import WindowsTimelineWindow
 from .windows_clipboard import WindowsClipboardMonitor
 from .windows_paste import WindowsPasteService
 from .windows_platform import (
-    WM_HOTKEY, acquire_single_instance_mutex,
-    register_hotkey, release_handle, unregister_hotkey,
+    ERROR_HOTKEY_ALREADY_REGISTERED, WM_HOTKEY, acquire_single_instance_mutex,
+    last_hotkey_error, register_hotkey, release_handle, unregister_hotkey,
 )
-from .windows_settings import load_settings, vk_for
+from .windows_settings import load_settings, save_settings
+from .windows_shortcuts import GLOBAL, SPECS, Result, ShortcutStore, parse_global
 from .windows_keyboard import WindowsPasteWatcher
 
 PANEL_HOTKEY, STACK_HOTKEY = 1, 2
@@ -56,14 +57,157 @@ def effective_retention_days(settings) -> int:
     except (TypeError, ValueError):
         return 30
 
-def register_configured_hotkeys(hwnd, settings, lifetime):
-    panel_vk, stack_vk = vk_for(settings["panel_hotkey"]), vk_for(settings["stack_hotkey"])
-    if panel_vk == stack_vk:
-        raise ValueError("Los atajos de historial y Stack deben ser distintos")
-    for identifier, key in ((PANEL_HOTKEY, panel_vk), (STACK_HOTKEY, stack_vk)):
-        if not register_hotkey(hwnd, identifier, key):
-            raise RuntimeError("No se pudieron registrar los atajos globales configurados")
-        lifetime.callback(unregister_hotkey, hwnd, identifier)
+class GlobalHotkeys:
+    """Owns the RegisterHotKey registrations of Nexus.
+
+    A shortcut that cannot be registered never aborts startup: the default is
+    tried, and whatever still fails is reported (notices + status) while the rest
+    of the app keeps working. Changes apply live and roll back on failure."""
+
+    IDS = {"panel": PANEL_HOTKEY, "stack": STACK_HOTKEY}
+
+    def __init__(self, hwnd, store, save):
+        self.hwnd, self.store, self._save = hwnd, store, save
+        self.registered = {}   # shortcut id -> text currently registered with Windows
+        self.failures = {}     # shortcut id -> why it is not registered
+        self.notices = []      # startup problems worth showing to the user
+        self._suspended = {}
+
+    @staticmethod
+    def _explain(code):
+        if code == ERROR_HOTKEY_ALREADY_REGISTERED:
+            return "Otra aplicación ya usa esa combinación."
+        return f"Windows no permite registrar esa combinación (código {code})."
+
+    def _register(self, name, text):
+        """None on success, otherwise the reason."""
+        try:
+            modifiers, key = parse_global(text)
+        except ValueError as error:
+            return str(error)
+        if not register_hotkey(self.hwnd, self.IDS[name], key, modifiers):
+            return self._explain(last_hotkey_error())
+        self.registered[name] = text
+        self.failures.pop(name, None)
+        return None
+
+    def _unregister(self, name):
+        if self.registered.pop(name, None) is not None:
+            unregister_hotkey(self.hwnd, self.IDS[name])
+
+    def register_all(self):
+        for name in self.IDS:
+            label, text, default = ShortcutStore.spec(name).label, self.store.get(name), self.store.default(name)
+            error = self._register(name, text)
+            if error and text != default:
+                fallback = self._register(name, default)
+                if fallback is None:
+                    self.store.reset(name)
+                    self._save()
+                    self.notices.append(f"«{label}»: no se pudo usar {text} ({error}) Se usa {default}.")
+                    continue
+            if error:
+                self.failures[name] = error
+                self.notices.append(f"«{label}» no está disponible: {error} Cámbiala en Configuración.")
+
+    def change(self, name, text):
+        result = self.store.validate(name, text)
+        if not result.ok:
+            return result
+        if self._suspended:
+            # Keys are released while Settings captures a combination: probe the
+            # new one against Windows, then let resume() register it for real.
+            error = self._register(name, result.value)
+            if error:
+                return Result(False, f"{result.value}: {error}")
+            self._unregister(name)
+            self._suspended[name] = result.value
+        else:
+            previous = self.registered.get(name)
+            if previous != result.value:
+                self._unregister(name)
+                error = self._register(name, result.value)
+                if error:
+                    if previous is not None:
+                        self._register(name, previous)
+                    return Result(False, f"{result.value}: {error}")
+        self.failures.pop(name, None)
+        self.store.set(name, result.value)
+        self._save()
+        return result
+
+    def reset(self, name):
+        return self.change(name, self.store.default(name))
+
+    def suspend(self):
+        """Release every hotkey while a key is being captured in Settings."""
+        if self._suspended:
+            return
+        self._suspended = dict(self.registered)
+        for name in list(self.registered):
+            self._unregister(name)
+
+    def resume(self):
+        pending, self._suspended = self._suspended, {}
+        for name, text in pending.items():
+            error = self._register(name, text)
+            if error:
+                self.failures[name] = error
+
+    def close(self):
+        for name in reversed(list(self.registered)):
+            self._unregister(name)
+
+
+class SettingsBackend:
+    """What the Configuration page talks to: shortcuts, capture pause, themes."""
+
+    def __init__(self, settings, store, hotkeys, timeline, notices=()):
+        self.settings, self.store, self.hotkeys, self.timeline = settings, store, hotkeys, timeline
+        self.startup_notices = list(notices)
+
+    def _save(self):
+        save_settings(self.settings)
+
+    def change_shortcut(self, name, text):
+        if ShortcutStore.spec(name).scope == GLOBAL and ShortcutStore.spec(name).editable:
+            return self.hotkeys.change(name, text)
+        result = self.store.set(name, text)
+        if result.ok:
+            self._save()
+            self.timeline.apply_shortcuts()
+        return result
+
+    def reset_shortcut(self, name):
+        return self.change_shortcut(name, self.store.default(name))
+
+    def reset_all_shortcuts(self):
+        """Returns the messages of the ones that could not be restored."""
+        problems = []
+        for spec in SPECS:
+            if spec.editable and not self.store.is_default(spec.id):
+                result = self.reset_shortcut(spec.id)
+                if not result.ok:
+                    problems.append(f"«{spec.label}»: {result.message}")
+        return problems
+
+    def status(self, name):
+        return self.hotkeys.failures.get(name, "")
+
+    def suspend_shortcuts(self):
+        self.hotkeys.suspend()
+        self.timeline.set_shortcuts_enabled(False)
+
+    def resume_shortcuts(self):
+        self.hotkeys.resume()
+        self.timeline.set_shortcuts_enabled(True)
+
+    def capture_paused(self):
+        return bool(self.settings.get("paused"))
+
+    def set_capture_paused(self, paused):
+        self.settings["paused"] = bool(paused)
+        self._save()
 
 def toggle_stack_window(stack_window, timeline, paste):
     """Explicit hotkey is the only path that opens Stack and enables capture.
@@ -116,6 +260,10 @@ def _run_windows(lifetime):
     app = QApplication(sys.argv); app.setApplicationName("Nexus")
     app.setQuitOnLastWindowClosed(False); app.setFont(windows_design.font()); app.setStyleSheet(windows_design.qss())
     settings = windows_sandbox.apply_settings(load_settings())
+    shortcut_store = ShortcutStore(settings, windows_sandbox.default_overrides())
+    notices = shortcut_store.sanitize()
+    if notices:
+        save_settings(settings)
     storage = StorageService()
     lifetime.callback(storage.close)
     retention_days = effective_retention_days(settings)
@@ -239,7 +387,12 @@ def _run_windows(lifetime):
     # native event dispatcher.  This host is intentionally never shown.
     hotkey_host = QWidget()
     hwnd = int(hotkey_host.winId())
-    register_configured_hotkeys(hwnd, settings, lifetime)
+    hotkeys = GlobalHotkeys(hwnd, shortcut_store, lambda: save_settings(settings))
+    lifetime.callback(hotkeys.close)
+    hotkeys.register_all()
+    notices += hotkeys.notices
+    settings_backend = SettingsBackend(settings, shortcut_store, hotkeys, timeline, notices)
+    timeline.configure_settings(settings_backend)
     tray = QSystemTrayIcon(QIcon(str(RESOURCES_DIR / "nexus-tray.png"))); tray.setToolTip("Nexus")
     menu = QMenu()
     menu.addAction("Abrir Nexus", show_panel)
@@ -278,6 +431,8 @@ def _run_windows(lifetime):
     menu.addSeparator(); menu.addAction("Salir de Nexus", app.quit)
     tray.setContextMenu(menu); tray.show()
     lifetime.callback(tray.hide)
+    if notices:
+        tray.showMessage("Nexus", "\n".join(notices), QSystemTrayIcon.MessageIcon.Warning, 8000)
     app.aboutToQuit.connect(lifetime.close)
     if os.environ.get("NEXUS_OPEN_ON_START") == "1":
         QTimer.singleShot(250, show_panel)

@@ -14,8 +14,10 @@ from PySide6.QtWidgets import (
 from .pinboard_editor import _swatch_pixmap
 from .pinboard_sidebar import HISTORY_ROW_ID, PinboardSidebar
 from .storage import AVAILABLE_COLORS, SUGGESTED_EMOJI, TITLE_MAX_LENGTH, Pinboard, normalize_title
+from .windows_settings_page import SettingsPage
+from .windows_shortcuts import expand_quick_paste
 from .timeline_window import TimelineWindow
-from . import windows_design
+from . import styles, windows_design
 from .windows_card_delegate import WindowsClipCardDelegate
 from .windows_material import upgrade_surface
 from .windows_motion import SearchFocusHighlight, WindowsMotion
@@ -317,6 +319,21 @@ class WindowsTimelineWindow(TimelineWindow):
         self._title_item_id = None
         rename = QShortcut(QKeySequence("F2"), self)
         rename.activated.connect(self.begin_title_edit)
+        # Name the shared panel's anonymous shortcuts so Settings can rebind them.
+        self._rename_shortcut = rename
+        self._local_shortcuts = {"search": None, "board_prev": None, "board_next": None, "quick_paste": {}}
+        for shortcut in self.findChildren(QShortcut):
+            key = shortcut.key().toString()
+            if key == "Ctrl+F":
+                self._local_shortcuts["search"] = shortcut
+            elif key == "Ctrl+Left":
+                self._local_shortcuts["board_prev"] = shortcut
+            elif key == "Ctrl+Right":
+                self._local_shortcuts["board_next"] = shortcut
+            elif key.startswith("Ctrl+") and key[5:].isdigit():
+                self._local_shortcuts["quick_paste"][int(key[5:])] = shortcut
+        self._settings_page = None
+        self._settings_backend = None
         self._model.modelReset.connect(self._sync_title_editor)
         for bar in (self._list.horizontalScrollBar(), self._list.verticalScrollBar()):
             bar.valueChanged.connect(self._sync_title_editor)
@@ -483,6 +500,8 @@ class WindowsTimelineWindow(TimelineWindow):
         self._search_action.setIcon(windows_design.icon("search", p.muted))
         self._back_btn.setText("Volver")
         self._back_btn.setIcon(windows_design.icon("back", p.muted, 16))
+        if getattr(self, "_settings_page", None) is not None:
+            self._settings_page.back_button.setIcon(windows_design.icon("back", p.muted, 16))
         labels = dict(windows_design.theme_choices())
         for action, key in self._theme_actions.items():
             action.setText(labels[key])
@@ -552,6 +571,8 @@ class WindowsTimelineWindow(TimelineWindow):
         menu = QMenu(options)
         manage = menu.addAction("Administrar Pinboards")
         manage.triggered.connect(self.manage_pinboards_requested.emit)
+        if getattr(self, "_settings_page", None) is not None:
+            menu.addAction("Configuración").triggered.connect(self.show_settings)
         options.setMenu(menu)
         self._pinboard_row.addWidget(options)
         self._management_btn = options
@@ -559,7 +580,7 @@ class WindowsTimelineWindow(TimelineWindow):
 
     def _update_chip_state(self):
         p = windows_design.palette()
-        in_manager = hasattr(self, "_pages") and self._pages.currentIndex() == 1
+        in_manager = hasattr(self, "_pages") and self._pages.currentIndex() != 0
         for board_id, button in self._pinboard_buttons.items():
             button.setChecked(not in_manager and board_id == self._current_pinboard_id)
             if board_id is None:
@@ -595,7 +616,7 @@ class WindowsTimelineWindow(TimelineWindow):
         self.show_pinboard_manager(creating=True)
 
     def _navigate_board(self, board_id):
-        was_admin = hasattr(self, "_pages") and self._pages.currentIndex() == 1
+        was_admin = hasattr(self, "_pages") and self._pages.currentIndex() != 0
         if hasattr(self, "_pages"):
             self._pages.setCurrentIndex(0)
             self._search.setEnabled(True)
@@ -683,7 +704,7 @@ class WindowsTimelineWindow(TimelineWindow):
             self.show_pinboard_manager()
 
     def close_pinboard_manager(self):
-        was_admin = self._pages.currentIndex() == 1
+        was_admin = self._pages.currentIndex() != 0
         self._pages.setCurrentIndex(0)
         self._search.setEnabled(True)
         self._search.show()
@@ -799,6 +820,72 @@ class WindowsTimelineWindow(TimelineWindow):
         if self._model.row_for_id(item_id) >= 0:
             super()._on_preview_ready(item_id, data)
 
+    # -- settings page and rebindable shortcuts ------------------------------
+
+    def configure_settings(self, backend):
+        """Attach the Configuración page (page 2) and apply saved shortcuts."""
+        self._settings_backend = backend
+        self._settings_page = SettingsPage(backend, windows_design.theme_choices(), self)
+        self._settings_page.theme_selected.connect(self.theme_requested.emit)
+        self._settings_page.back_requested.connect(self.close_pinboard_manager)
+        self._settings_page.sync_theme(styles.active_theme().key)
+        self._settings_page.back_button.setIcon(windows_design.icon("back", windows_design.palette().muted, 16))
+        self._pages.addWidget(self._settings_page)
+        self.apply_shortcuts()
+        self._chip_signature = None
+        self.refresh()
+
+    def apply_shortcuts(self):
+        """Bind the rebindable local shortcuts to the stored combinations."""
+        if self._settings_backend is None:
+            return
+        keys = self._settings_backend.store.local_keys()
+        local = self._local_shortcuts
+        self._rename_shortcut.setKey(QKeySequence(keys["rename"]))
+        for identifier in ("search", "board_prev", "board_next"):
+            if local[identifier] is not None:
+                local[identifier].setKey(QKeySequence(keys[identifier]))
+        for number, text in enumerate(expand_quick_paste(keys["quick_paste"]), start=1):
+            if number in local["quick_paste"]:
+                local["quick_paste"][number].setKey(QKeySequence(text))
+
+    def set_shortcuts_enabled(self, enabled):
+        """Off while Settings captures a key, so existing shortcuts can be re-assigned."""
+        shortcuts = [self._rename_shortcut, *self._local_shortcuts["quick_paste"].values()]
+        shortcuts += [s for s in (self._local_shortcuts[k] for k in ("search", "board_prev", "board_next")) if s is not None]
+        for shortcut in shortcuts:
+            shortcut.setEnabled(enabled)
+
+    def show_settings(self):
+        if self._settings_page is None:
+            return
+        self._commit_open_title_edit()
+        self._pages.setCurrentWidget(self._settings_page)
+        self._search.setEnabled(False)
+        self._search.hide()
+        self._pages.setAccessibleName("Configuración")
+        self._settings_page.refresh()
+        self._update_chip_state()
+        self._apply_geometry()
+        if hasattr(self, "_motion"):
+            self._motion.transition(self._settings_page)
+
+    def show_settings_management(self):
+        """Tray entry point: show this same panel, then Configuración."""
+        if not self.isVisible():
+            self.show_and_focus()
+        if self.isVisible():
+            self.show_settings()
+
+    def set_theme_selection(self, key):
+        super().set_theme_selection(key)
+        if self._settings_page is not None:
+            self._settings_page.sync_theme(key)
+
+    def _cycle_pinboard(self, step):
+        if self._pages.currentIndex() == 0:
+            super()._cycle_pinboard(step)
+
     # -- titles ------------------------------------------------------------
 
     def _extend_item_menu(self, menu, item):
@@ -894,7 +981,7 @@ class WindowsTimelineWindow(TimelineWindow):
             self._search.selectAll()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape and self._pages.currentIndex() == 1:
+        if event.key() == Qt.Key.Key_Escape and self._pages.currentIndex() != 0:
             self.close_pinboard_manager()
             return
         super().keyPressEvent(event)
@@ -924,7 +1011,7 @@ class WindowsTimelineWindow(TimelineWindow):
         width = min(target_width, max(1, avail.width() - 2 * windows_design.WORKAREA_SIDE))
         card_height = 184 if avail.height() >= 800 else 160
         wanted = card_height + 16 + chrome
-        if self._pages.currentIndex() == 1:
+        if self._pages.currentIndex() != 0:
             wanted = chrome + 440
         height = min(wanted, max(1, avail.height() - 2 * windows_design.WORKAREA_BOTTOM))
         if height - chrome < 164:

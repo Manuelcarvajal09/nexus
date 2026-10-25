@@ -56,7 +56,7 @@ class Backdrop:
     def native_settings_changed(self, message): pass
     def close(self): pass
 
-def register(hwnd, identifier, key):
+def register(hwnd, identifier, key, modifiers=None):
     events["registered"].append(identifier)
     return True
 
@@ -70,6 +70,7 @@ with patch.object(app, "QApplication", Application), \
      patch.object(app, "BackdropController", Backdrop), \
      patch.object(app, "StorageService", lambda: storage), \
      patch.object(app, "load_settings", lambda: dict(DEFAULTS)), \
+     patch.object(app, "save_settings", lambda settings: None), \
      patch.object(app.paths, "LOG_PATH", root / "synthetic.log"), \
      patch.object(styles, "_THEME_FILE", root / "synthetic-theme.json"), \
      patch.object(app, "acquire_single_instance_mutex", lambda: 123), \
