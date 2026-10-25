@@ -13,7 +13,7 @@ One controller manages one window and one viewport at a time, on the GUI thread.
 
 import os
 
-from PySide6.QtCore import QEvent, QEasingCurve, QObject, QPropertyAnimation, Property, QRectF, Qt
+from PySide6.QtCore import QEvent, QEasingCurve, QObject, QPropertyAnimation, Property, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QWidget
 from shiboken6 import isValid
@@ -152,6 +152,35 @@ class WindowsMotion(QObject):
         animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         animation.finished.connect(self._cancel_page)
         animation.start()
+
+
+def fade_in(widget: QWidget, duration: int = MOTION_PAGE_MS, start: float = 0.0):
+    """Self-contained, finite opacity fade for one widget (never the HWND).
+
+    Returns the animation, or None when nothing was started: reduced motion,
+    widget not visible, or it already has a graphics effect (never stacked).
+    The temporary effect removes itself on completion, so no effect lingers."""
+    if not isValid(widget) or not widget.isVisible() or not _motion_enabled() or widget.graphicsEffect() is not None:
+        return None
+    effect = QGraphicsOpacityEffect(widget)
+    effect.setOpacity(start)
+    widget.setGraphicsEffect(effect)
+    animation = QPropertyAnimation(effect, b"opacity", widget)
+    animation.setDuration(duration)
+    animation.setStartValue(start)
+    animation.setEndValue(1.0)
+    animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def cleanup():
+        if isValid(widget) and isValid(effect) and widget.graphicsEffect() is effect:
+            widget.setGraphicsEffect(None)
+        if isValid(animation):
+            animation.deleteLater()
+
+    # Defer: never delete the effect from inside the animation's own signal.
+    animation.finished.connect(lambda: QTimer.singleShot(0, cleanup))
+    animation.start()
+    return animation
 
 
 class SearchFocusHighlight(QWidget):

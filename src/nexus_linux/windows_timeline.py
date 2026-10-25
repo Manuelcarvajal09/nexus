@@ -20,7 +20,8 @@ from .timeline_window import TimelineWindow
 from . import styles, windows_design
 from .windows_card_delegate import WindowsClipCardDelegate
 from .windows_material import upgrade_surface
-from .windows_motion import SearchFocusHighlight, WindowsMotion
+from .windows_design import MOTION_FAST_MS, MOTION_OPEN_CONTENT_MS
+from .windows_motion import SearchFocusHighlight, WindowsMotion, fade_in
 from .windows_backdrop import configure_native_host, handle_native_host_event
 from .windows_platform import activate_foreground_window
 
@@ -787,6 +788,7 @@ class WindowsTimelineWindow(TimelineWindow):
             return
         self._select_pinboard(self._editing_id)
         self._feedback_label.show()
+        fade_in(self._feedback_label, MOTION_FAST_MS)
         self._feedback_timer.start()
 
     def _delete_pinboard(self, board_id):
@@ -912,6 +914,7 @@ class WindowsTimelineWindow(TimelineWindow):
         self._delegate.set_editing_item(item.id)
         self._sync_title_editor()
         editor.show()
+        fade_in(editor, MOTION_FAST_MS)
         editor.setFocus()
         editor.selectAll()
         self._list.viewport().update()
@@ -1040,7 +1043,12 @@ class WindowsTimelineWindow(TimelineWindow):
         if not self._apply_geometry():
             return
         self._pending_focus_claim = True
+        was_visible = self.isVisible()
         self._motion.show(self)
+        if not was_visible:
+            # The HWND itself must not fade (that would break the DWM Acrylic),
+            # so the content eases in instead: brief, from already half visible.
+            fade_in(self._pages, MOTION_OPEN_CONTENT_MS, start=.55)
         self.raise_()
         self.activateWindow()
         if QApplication.platformName() == "windows":

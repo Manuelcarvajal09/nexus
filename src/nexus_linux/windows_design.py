@@ -47,6 +47,8 @@ BLOCK_GAP, INTERNAL_GAP = 20, 12
 WORKAREA_SIDE, WORKAREA_BOTTOM = 24, 28
 RADIUS_PANEL, RADIUS_CARD, RADIUS_CONTROL = 22, 16, 10
 MOTION_FAST_MS, MOTION_OPEN_MS, MOTION_PAGE_MS = 90, 130, 90
+STATUS_ERROR = "#F28B82"  # error text: >= 4.5:1 on every theme's panel and card
+MOTION_OPEN_CONTENT_MS = 110  # content easing in when the panel opens (the HWND never fades)
 MOTION_HOVER_MS, MOTION_FOCUS_MS = 150, 110
 
 
@@ -214,7 +216,7 @@ def qss() -> str:
     QLabel#scopePill[scope="global"] {{ background: {p.accent_fill}; color: {p.accent}; }}
     QLabel#keyPill {{ background: transparent; color: {p.muted}; border: 1px dashed {control_border}; border-radius: 9px; padding: 6px 10px; font-size: 12px; }}
     QLabel#statusOk {{ color: {p.accent}; font-size: 11px; }}
-    QLabel#statusError {{ color: #e07a6f; font-size: 11px; }}
+    QLabel#statusError {{ color: {STATUS_ERROR}; font-size: 11px; }}
     QKeySequenceEdit#keyEdit QLineEdit {{ padding: 6px 10px; border-radius: 9px; font-size: 12px; font-weight: 600; }}
     QPushButton#captureToggle {{ padding: 8px 16px; font-size: 12px; }}
     QDialog#detailsDialog {{ background: {menu_bg}; border: 1px solid {control_border_hover}; }}
