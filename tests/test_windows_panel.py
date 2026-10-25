@@ -165,8 +165,8 @@ def test_admin_shortcuts_cannot_paste_hidden_cards(panel, paste_service):
     panel._quick_paste(1)
     assert paste_service.written == []
     assert paste_service.paste_count == 0
-    panel._toggle_expanded()
-    assert not panel._expanded
+    panel._toggle_expanded()  # Tab on the admin page is inert
+    assert panel._pages.currentIndex() == 1
 
 
 def test_context_menu_manage_route_and_sidebar_selection(panel, qapp, monkeypatch):
@@ -235,10 +235,7 @@ def test_geometry_stable_history_board_admin_and_long_names(panel, qapp, monkeyp
     panel.show_and_focus()
     qapp.processEvents()
     assert panel.geometry() == expected
-    panel._toggle_expanded()
-    qapp.processEvents()
-    assert work_area.contains(panel.geometry())
-    panel._toggle_expanded()
+    panel._toggle_expanded()  # Tab moves focus; it can never resize the window
     qapp.processEvents()
     assert panel.geometry() == expected
 
@@ -303,7 +300,7 @@ def test_manager_empty_draft_edit_save_cancel_and_right_heading(panel, qapp):
     qapp.processEvents()
     assert panel._sidebar._list.currentItem() is None
     assert panel._right_heading.text() == "Nuevo pinboard"
-    assert panel._context_label.text() != "Nuevo pinboard"
+    assert panel._pages.accessibleName() != "Nuevo pinboard"
     heading_x = panel._right_heading.mapTo(panel, QPoint()).x()
     sidebar_right = panel._sidebar.mapTo(panel, panel._sidebar.rect().topRight()).x()
     assert heading_x > sidebar_right
@@ -327,10 +324,10 @@ def test_manager_hides_history_search_and_restores_it_on_both_exit_routes(panel,
     assert panel._search.isVisible()
     panel.show_pinboard_manager(creating=True)
     assert panel._search.isHidden() and not panel._search.isEnabled()
-    assert panel._context_label.text() == "Pinboards"
+    assert panel._pages.accessibleName() == "Pinboards"
     panel._navigate_board(board.id)
     assert panel._search.isVisible() and panel._search.isEnabled()
-    assert panel._context_label.text() == board.name
+    assert panel._pages.accessibleName() == board.name
     panel.show_pinboard_manager()
     panel.close_pinboard_manager()
     assert panel._search.isVisible() and panel._search.isEnabled()
@@ -430,7 +427,7 @@ def test_navigation_shows_only_history_and_real_boards_plus_options(panel):
     assert [action.text() for action in options.menu().actions()] == ["Administrar Pinboards"]
     options.menu().actions()[0].trigger()
     assert panel._pages.currentIndex() == 1
-    assert panel._context_label.isHidden()
+    assert panel._pages.accessibleName() == "Pinboards"
 
 
 def test_pinboard_chips_use_only_their_emoji_and_reserve_bold_label_width(panel):

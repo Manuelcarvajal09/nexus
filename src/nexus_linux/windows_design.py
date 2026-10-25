@@ -158,8 +158,6 @@ def qss() -> str:
     QLabel#subtitle, QLabel#rowMeta {{ color: {p.muted}; font-size: 11px; }}
     QLabel#rowTitle {{ font-size: 13px; font-weight: 500; color: {p.text}; }}
     QLabel#contextEyebrow {{ color: {p.faint}; font-size: 10px; font-weight: 600; letter-spacing: 1.2px; }}
-    QLabel#contextTitle {{ color: {p.text}; font-size: 13px; font-weight: 600; }}
-    QLabel#keyboardHint {{ color: {p.faint}; font-size: 11px; }}
     QLabel#successFeedback {{ color: {p.accent}; font-size: 11px; font-weight: 600; }}
     QLabel#badgeCompact, QLabel#badge {{ background: {p.accent_fill}; color: {p.accent}; border-radius: 7px; padding: 3px 7px; font-size: 10px; font-weight: 600; }}
     QLineEdit {{ background: {control_bg}; border: 1px solid {control_border}; border-radius: 10px;
@@ -214,8 +212,9 @@ def qss() -> str:
     QLabel#detailValue {{ color: {p.text}; font-size: 12px; }}
     QMenu, QToolTip, QMessageBox {{ background: {menu_bg}; color: {p.text}; border: 1px solid {control_border_hover}; border-radius: 11px; }}
     QMenu {{ padding: 6px; }}
-    QMenu::item {{ padding: 8px 24px 8px 12px; border-radius: 7px; color: {p.muted}; font-size: 12px; }}
+    QMenu::item {{ padding: 8px 28px 8px 12px; border-radius: 7px; color: {p.muted}; font-size: 12px; }}
     QMenu::item:selected {{ background: {p.accent_fill}; color: {p.text}; }}
+    QMenu::item:disabled {{ color: {p.faint}; background: transparent; }}
     QMenu::item:checked {{ color: {p.accent}; }}
     QMenu::separator {{ background: {p.border}; height: 1px; margin: 5px 7px; }}
     QToolTip {{ padding: 6px 9px; font-size: 11px; }}

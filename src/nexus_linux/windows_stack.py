@@ -384,9 +384,10 @@ class WindowsStackWindow(StackWindow):
         self._hint_label = next((label for label in self.findChildren(QLabel)
                                  if label.text().startswith("Clic derecho")), None)
         if self._hint_label is not None:
-            self._hint_label.setText(
-                "Clic derecho para eliminar. Presiona Ctrl+V para pegar el siguiente elemento."
-            )
+            # No always-visible legend: the same guidance lives in tooltips.
+            self._hint_label.hide()
+        self._paste_next_btn.setToolTip("Pegar el siguiente elemento · Ctrl+V")
+        self._list.setToolTip("Clic derecho para quitar un elemento del Stack")
         self._next_label = next((label for label in self.findChildren(QLabel)
                                  if label.text() == "SIGUIENTE"), None)
         self._clear_btn = next((button for button in self.findChildren(QPushButton)

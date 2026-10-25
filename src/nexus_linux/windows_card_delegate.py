@@ -291,7 +291,11 @@ class WindowsClipCardDelegate(ClipCardDelegate):
         self._text(painter, QRectF(footer.right() - time_width, footer.top(), time_width, footer.height()), when, 11, tokens.faint)
         painter.restore()
         if focus:
-            painter.setPen(QPen(QColor(tokens.accent), 1, Qt.PenStyle.DotLine))
+            # Keyboard focus: a soft solid inner ring, distinct from the
+            # selection border and from hover, readable in every theme.
+            ring = QColor(tokens.accent)
+            ring.setAlpha(150)
+            painter.setPen(QPen(ring, 1))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(outer.adjusted(3, 3, -3, -3), 13, 13)
         painter.restore()

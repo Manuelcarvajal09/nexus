@@ -328,7 +328,7 @@ def main():
                         report["inactive_visual_sample"] = inactive_shot.pixelColor(x, y).name()
                     foreground_owned_window(panel)
             panel.show_pinboard_management(); capture("pinboard-manager")
-            panel.close_pinboard_manager(); panel._toggle_expanded(); capture("expanded")
+            panel.close_pinboard_manager()  # (Expandir/Contraer no longer exists)
             stack_samples = []
             stack_grid_samples = []
             for phase, label in enumerate(("light", "color", "dark")):

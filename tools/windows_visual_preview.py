@@ -98,8 +98,6 @@ def main():
         panel.grab().save(str(output / "pinboard-manager.png"))
         panel.close_pinboard_manager(); panel._select_pinboard(None)
         panel._preview_data[link.id] = {"title": "A quieter place for your next big idea", "domain": "example.com"}
-        panel._toggle_expanded(); QTest.qWait(180)
-        panel.grab().save(str(output / "expanded.png"))
         panel._search.setText("synthetic nonexistent query"); panel.refresh(); QTest.qWait(180)
         panel.grab().save(str(output / "empty-search.png"))
         stack = WindowsClipStack(storage, Paste()); stack_window = WindowsStackWindow(stack)

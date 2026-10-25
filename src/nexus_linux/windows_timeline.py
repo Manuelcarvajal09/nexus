@@ -423,39 +423,27 @@ class WindowsTimelineWindow(TimelineWindow):
         self._count_badge.setFixedHeight(24)
         self._count_badge.setToolTip("Elementos en la vista actual")
         self._style_btn.setAccessibleName("Elegir estilo visual")
-        self._expand_btn.setAccessibleName("Expandir o contraer el panel")
+        # The Expandir/Contraer control is not part of the Windows header.
+        header.removeWidget(self._expand_btn)
+        self._expand_btn.deleteLater()
+        self._expand_btn = None
         self._close_btn.setText("")
         self._search.setPlaceholderText("Buscar en tu historial…")
         self._search.setAccessibleName("Buscar contenido del portapapeles")
         self._search.setClearButtonEnabled(True)
         self._search_action = self._search.addAction(windows_design.icon("search", windows_design.palette().muted), QLineEdit.ActionPosition.LeadingPosition)
         self._search_highlight = SearchFocusHighlight(self._search)
-        footer = QWidget()
-        footer_layout = QHBoxLayout(footer)
-        footer_layout.setContentsMargins(6, 0, 6, 0)
-        self._context_label = QLabel("Historial")
-        self._context_label.hide()
-        self._context_label.setObjectName("contextTitle")
-        self._context_label.setTextFormat(Qt.TextFormat.PlainText)
-        self._context_label.setMinimumWidth(0)
-        self._context_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        footer_layout.addWidget(self._context_label, 1)
+        # No footer: the keyboard legend is gone (shortcuts keep working) and the
+        # brief "Guardado" confirmation now lives in the header, beside the count.
         self._feedback_label = QLabel("Guardado")
         self._feedback_label.setObjectName("successFeedback")
         self._feedback_label.hide()
-        footer_layout.addWidget(self._feedback_label)
+        header.insertWidget(header.indexOf(self._count_badge), self._feedback_label)
         self._feedback_timer = QTimer(self)
         self._feedback_timer.setSingleShot(True)
         self._feedback_timer.setInterval(1400)
         self._feedback_timer.timeout.connect(self._feedback_label.hide)
-        self._keyboard_hint = QLabel("Ctrl+F  Buscar    ·    Enter  Pegar    ·    Esc  Cerrar")
-        self._keyboard_hint.setObjectName("keyboardHint")
-        self._keyboard_hint.setMinimumWidth(0)
-        self._keyboard_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self._keyboard_hint.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        footer_layout.addWidget(self._keyboard_hint, 2)
-        self._footer = footer
-        self._surface_layout.addWidget(footer)
+        self._pages.setAccessibleName("Historial")
         self.apply_visual_theme()
         self._sync_chip_height()
         QApplication.instance().focusChanged.connect(self._ensure_editor_focus_visible)
@@ -492,8 +480,6 @@ class WindowsTimelineWindow(TimelineWindow):
         self._surface.update()
         self._brand.setPixmap(windows_design.icon("brand", p.accent, 24).pixmap(24, 24))
         self._close_btn.setIcon(windows_design.icon("close", p.muted, 16))
-        self._expand_btn.setText("Contraer" if self._expanded else "Expandir")
-        self._expand_btn.setIcon(windows_design.icon("up" if self._expanded else "down", p.muted, 14))
         self._search_action.setIcon(windows_design.icon("search", p.muted))
         self._back_btn.setText("Volver")
         self._back_btn.setIcon(windows_design.icon("back", p.muted, 16))
@@ -510,11 +496,6 @@ class WindowsTimelineWindow(TimelineWindow):
         self._eyebrow.setVisible(self.width() >= 760)
         self._brand.setVisible(self.width() >= 520)
         self._count_badge.setVisible(self.width() >= 520)
-        self._expand_btn.setText(("Contraer" if self._expanded else "Expandir") if self.width() >= 520 else "")
-        if hasattr(self, "_keyboard_hint"):
-            self._keyboard_hint.setText("Esc  Volver al historial" if self._pages.currentIndex() == 1 else
-                "Enter  Pegar    ·    Esc  Cerrar" if self.width() < 760 else
-                "Ctrl+F  Buscar    ·    Enter  Pegar    ·    Esc  Cerrar")
 
     def _sync_history_scrollbar(self):
         # Normal desktop widths fit all cards; only compact windows may need
@@ -619,8 +600,6 @@ class WindowsTimelineWindow(TimelineWindow):
             self._pages.setCurrentIndex(0)
             self._search.setEnabled(True)
             self._search.show()
-            self._expand_btn.setEnabled(True)
-            self._keyboard_hint.setText("Ctrl+F  Buscar    ·    Enter  Pegar    ·    Esc  Cerrar")
         self._select_pinboard(board_id)
         if was_admin:
             self._apply_geometry()
@@ -663,9 +642,9 @@ class WindowsTimelineWindow(TimelineWindow):
         for key in list(self._preview_data):
             if key not in current_ids:
                 del self._preview_data[key]
-        if hasattr(self, "_context_label"):
+        if hasattr(self, "_feedback_label"):
             board = self._storage.get_pinboard(self._current_pinboard_id) if self._current_pinboard_id is not None else None
-            self._context_label.setText("Pinboards" if self._pages.currentIndex() == 1 else board.name if board else "Historial")
+            self._pages.setAccessibleName("Pinboards" if self._pages.currentIndex() == 1 else board.name if board else "Historial")
             self._count_badge.setAccessibleName(f"{self._model.rowCount()} elementos en la vista actual")
         if hasattr(self, "_sidebar"):
             self._sidebar.refresh()
@@ -689,13 +668,11 @@ class WindowsTimelineWindow(TimelineWindow):
         self._update_chip_state()
         self._search.setEnabled(False)
         self._search.hide()
-        self._context_label.setText("Pinboards")
-        self._expand_btn.setEnabled(False)
+        self._pages.setAccessibleName("Pinboards")
         self._sidebar.refresh()
         self._open_editor(None if creating else self._current_pinboard_id, creating=creating)
         self._apply_geometry()
         if hasattr(self, "_motion"):
-            self._keyboard_hint.setText("Esc  Volver al historial")
             self._motion.transition(self._admin_page)
 
     def show_pinboard_management(self):
@@ -710,13 +687,11 @@ class WindowsTimelineWindow(TimelineWindow):
         self._pages.setCurrentIndex(0)
         self._search.setEnabled(True)
         self._search.show()
-        self._expand_btn.setEnabled(True)
         self.refresh()
         self._search.setFocus()
         if was_admin:
             self._apply_geometry()
         if hasattr(self, "_motion"):
-            self._keyboard_hint.setText("Ctrl+F  Buscar    ·    Enter  Pegar    ·    Esc  Cerrar")
             self._motion.transition(self._pages.currentWidget())
             self._sync_header_density()
 
@@ -907,14 +882,16 @@ class WindowsTimelineWindow(TimelineWindow):
         return answer == QMessageBox.StandardButton.Yes
 
     def _toggle_expanded(self):
-        if self._pages.currentIndex() == 0:
-            super()._toggle_expanded()
-            if hasattr(self, "_motion"):
-                p = windows_design.palette()
-                self._expand_btn.setText("Contraer" if self._expanded else "Expandir")
-                self._expand_btn.setIcon(windows_design.icon("up" if self._expanded else "down", p.muted, 14))
-                self._sync_header_density()
-                self._motion.transition(self._pages.currentWidget())
+        """Tab. The shared panel binds it to Expand/Collapse, which Windows
+        does not offer; here it moves focus between the search box and the
+        results instead, so the whole panel stays keyboard-driven."""
+        if self._pages.currentIndex() != 0 or self._title_editor is not None:
+            return
+        if self._search.hasFocus():
+            self._focus_list()
+        else:
+            self._search.setFocus()
+            self._search.selectAll()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape and self._pages.currentIndex() == 1:
@@ -937,8 +914,7 @@ class WindowsTimelineWindow(TimelineWindow):
         outer = self.layout().contentsMargins()
         margins = self._surface_layout.contentsMargins()
         chrome = (self._chrome.sizeHint().height() + outer.top() + outer.bottom()
-                  + margins.top() + margins.bottom() + self._surface_layout.spacing() * 2
-                  + (self._footer.sizeHint().height() if hasattr(self, "_footer") else 0))
+                  + margins.top() + margins.bottom() + self._surface_layout.spacing())
         avail = screen.availableGeometry()
         # Windows owns its edge clearances and content width; do not alter the
         # shared Linux panel geometry policy.
@@ -947,18 +923,14 @@ class WindowsTimelineWindow(TimelineWindow):
             target_width = 744
         width = min(target_width, max(1, avail.width() - 2 * windows_design.WORKAREA_SIDE))
         card_height = 184 if avail.height() >= 800 else 160
-        wanted = max(round(avail.height() * .4), chrome + 2 * (card_height + 4) + 8) if self._expanded else card_height + 16 + chrome
+        wanted = card_height + 16 + chrome
         if self._pages.currentIndex() == 1:
             wanted = chrome + 440
         height = min(wanted, max(1, avail.height() - 2 * windows_design.WORKAREA_BOTTOM))
         if height - chrome < 164:
             card_height = 148
         self._delegate.set_card_height(card_height)
-        # Fit complete columns, accounting for the vertical scrollbar. Four
-        # 216px slots narrowly miss the 900px panel; don't waste an entire column.
-        usable = max(1, width - margins.left() - margins.right() - (8 if self._expanded else 0))
-        columns = max(1, round(usable / 220))
-        card_width = min(216, max(180, usable // columns - 4)) if self._expanded else 216
+        card_width = 216
         self._delegate.set_card_width(card_width)
         self._list.setGridSize(QSize(card_width + 4, card_height + 4))
         body_height = max(0, height - chrome)
@@ -975,12 +947,7 @@ class WindowsTimelineWindow(TimelineWindow):
     def show_and_focus(self):
         self._commit_open_title_edit()
         self.close_pinboard_manager()
-        self._expanded = False
-        self._list.setWrapping(False)
-        self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._expand_btn.setText("Expandir")
         if hasattr(self, "_motion"):
-            self._expand_btn.setIcon(windows_design.icon("down", windows_design.palette().muted, 14))
             self._sync_header_density()
         if not self._apply_geometry():
             return

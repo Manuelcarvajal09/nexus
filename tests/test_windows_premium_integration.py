@@ -3,9 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QAbstractAnimation, QEvent, QPoint, QRect, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QShortcut
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
 from nexus_linux import styles, windows_design as design
 from nexus_linux.windows_timeline import WindowsTimelineWindow
@@ -79,15 +79,39 @@ def test_plus_creates_a_draft_not_an_edit_of_selected_board(premium):
     assert premium._search.isEnabled()
 
 
-def test_expanded_view_adds_complete_rows_without_losing_columns(premium, qapp):
+def test_there_is_no_expand_control_and_tab_only_moves_focus(premium, qapp, monkeypatch):
     for i in range(8): premium._storage.capture(kind="text", text_content=f"Synthetic {i}")
     premium.show_and_focus(); qapp.processEvents()
-    compact = QRect(premium.geometry())
+    assert premium._expand_btn is None
+    assert not [b for b in premium.findChildren(QPushButton) if b.text().strip() in ("Expandir", "Contraer", "Colapsar")]
+    geometry = QRect(premium.geometry())
+    calls = []
+    monkeypatch.setattr(premium, "_focus_list", lambda: calls.append("list"))
+    monkeypatch.setattr(premium._search, "hasFocus", lambda: True)
+    premium._toggle_expanded()
+    monkeypatch.setattr(premium._search, "hasFocus", lambda: False)
+    monkeypatch.setattr(premium._search, "setFocus", lambda *a: calls.append("search"))
     premium._toggle_expanded(); qapp.processEvents()
-    assert premium.geometry().height() > compact.height()
-    assert premium.geometry().width() == compact.width()
-    assert premium._list.viewport().rect().contains(premium._list.visualRect(premium._model.index(3, 0)))
-    assert premium._list.viewport().rect().contains(premium._list.visualRect(premium._model.index(7, 0)))
+    assert calls == ["list", "search"]
+    assert premium.geometry() == geometry and premium._expanded is False
+
+
+def test_keyboard_legend_and_footer_are_gone_but_shortcuts_still_work(premium, qapp):
+    premium.show_and_focus(); qapp.processEvents()
+    for admin in (False, True):
+        if admin:
+            premium.show_pinboard_manager(); qapp.processEvents()
+        texts = " ".join(label.text() for label in premium.findChildren(QLabel))
+        assert "Ctrl+F" not in texts and "Enter  Pegar" not in texts and "Esc  Cerrar" not in texts
+    assert not hasattr(premium, "_keyboard_hint") and not hasattr(premium, "_footer")
+    keys = {s.key().toString() for s in premium.findChildren(QShortcut)}
+    assert {"Ctrl+F", "Ctrl+Left", "Ctrl+Right", "F2", *(f"Ctrl+{n}" for n in range(1, 10))} <= keys
+
+
+def test_no_empty_footer_strip_remains_below_the_cards(premium, qapp):
+    premium.show_and_focus(); qapp.processEvents()
+    below = premium.height() - premium._pages.mapTo(premium, QPoint(0, premium._pages.height())).y()
+    assert below == premium.layout().contentsMargins().bottom() + premium._surface_layout.contentsMargins().bottom()
 
 
 def test_color_buttons_have_visible_focus_and_support_space(premium, qapp):
@@ -187,7 +211,7 @@ def test_responsive_header_keeps_close_and_search_accessible(premium, qapp, work
     premium.resolve_target_screen = lambda: SimpleNamespace(availableGeometry=lambda: work_area)
     premium.show_and_focus(); qapp.processEvents()
     assert work_area.contains(premium.geometry())
-    for widget in (premium._close_btn, premium._style_btn, premium._expand_btn, premium._search):
+    for widget in (premium._close_btn, premium._style_btn, premium._search):
         rect = QRect(widget.mapTo(premium, QPoint()), widget.size())
         assert premium.rect().contains(rect)
         assert widget.isVisible()
