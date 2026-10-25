@@ -284,6 +284,13 @@ class SettingsPage(QWidget):
         for theme_key, button in self.theme_buttons.items():
             button.setChecked(theme_key == key)
 
+    def sync_capture(self):
+        """Another surface (the tray menu) changed the pause state."""
+        self.capture_toggle.blockSignals(True)
+        self.capture_toggle.setChecked(not self.backend.capture_paused())
+        self.capture_toggle.blockSignals(False)
+        self._sync_capture_text()
+
     def _sync_capture_text(self):
         self.capture_toggle.setText("Captura activa" if self.capture_toggle.isChecked() else "Captura en pausa")
         self.capture_toggle.setAccessibleName(self.capture_toggle.text())

@@ -39,10 +39,18 @@ class Watcher(QObject):
     def start(self): events["watcher_starts"] += 1
     def stop(self): pass
 
+class _Signal:
+    def connect(self, *args): pass
+
 class Tray:
+    activated = _Signal()
     def __init__(self, *args): pass
+    @staticmethod
+    def isSystemTrayAvailable(): return True
     def setToolTip(self, *args): pass
+    def setIcon(self, *args): pass
     def setContextMenu(self, *args): pass
+    def showMessage(self, *args): pass
     def show(self): pass
     def hide(self): pass
 

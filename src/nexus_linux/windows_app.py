@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 from . import paths, styles, type_detection
 from . import windows_design, windows_sandbox
+from .windows_icons import app_icon, set_app_user_model_id, tray_icon
 from .windows_backdrop import BackdropController, NativeBackend
 from .preview_service import PreviewService
 from .windows_stack import WindowsClipStack, WindowsStackWindow
@@ -165,6 +166,7 @@ class SettingsBackend:
     def __init__(self, settings, store, hotkeys, timeline, notices=()):
         self.settings, self.store, self.hotkeys, self.timeline = settings, store, hotkeys, timeline
         self.startup_notices = list(notices)
+        self._capture_listeners = []
 
     def _save(self):
         save_settings(self.settings)
@@ -205,9 +207,93 @@ class SettingsBackend:
     def capture_paused(self):
         return bool(self.settings.get("paused"))
 
+    def on_capture_changed(self, callback):
+        """Tray and Settings both show the pause state; either can change it."""
+        self._capture_listeners.append(callback)
+
     def set_capture_paused(self, paused):
-        self.settings["paused"] = bool(paused)
+        paused = bool(paused)
+        if paused == self.capture_paused():
+            return
+        self.settings["paused"] = paused
         self._save()
+        for callback in list(self._capture_listeners):
+            callback(paused)
+
+
+_TRAY_TRIGGER = QSystemTrayIcon.ActivationReason.Trigger
+_TRAY_WARNING = QSystemTrayIcon.MessageIcon.Warning
+
+
+class TrayController:
+    """The notification-area icon: quick actions only. Everything else lives in
+    the panel (Configuración). Left click toggles the panel; the menu offers the
+    panel, Pinboards, Stack, pausing capture, Configuración, theme and quit."""
+
+    def __init__(self, app, backend, stack_window, *, show_panel, show_stack, show_pinboards, show_settings, apply_theme):
+        self.backend, self.stack_window = backend, stack_window
+        self._show_panel = show_panel
+        self._suffix = " (sandbox)" if windows_sandbox.active() else ""
+        self.tray = QSystemTrayIcon(tray_icon(backend.capture_paused()))
+        self.available = QSystemTrayIcon.isSystemTrayAvailable()
+        if not self.available:
+            logging.getLogger("nexus.tray").warning("system tray not available")
+        self.menu = QMenu()
+        self.menu.addAction("Abrir Nexus", show_panel)
+        self.menu.addAction("Administrar pinboards y biblioteca…", show_pinboards)
+        self.stack_action = self.menu.addAction("Nexus Stack", show_stack)
+        self.menu.addSeparator()
+        self.capture_action = self.menu.addAction("Pausar captura del portapapeles", self._toggle_capture)
+        self.menu.addSeparator()
+        self.settings_action = self.menu.addAction("Configuración…", show_settings)
+        self.shortcuts_action = self.menu.addAction("Atajos de teclado…", show_settings)
+        theme_menu = self.menu.addMenu("Estilo")
+        self.theme_actions = {}
+        for key, label in windows_design.theme_choices():
+            action = theme_menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(key == styles.active_theme().key)
+            action.triggered.connect(lambda _checked, key=key: apply_theme(key))
+            self.theme_actions[action] = key
+        self.menu.addSeparator()
+        self.quit_action = self.menu.addAction("Salir de Nexus", app.quit)
+        self.tray.setContextMenu(self.menu)
+        self.tray.activated.connect(self._activated)
+        stack_window.collecting_changed.connect(lambda _active: self.refresh())
+        backend.on_capture_changed(lambda _paused: self.refresh())
+        self._timer = QTimer(app)
+        self._timer.timeout.connect(self.refresh)
+        self._timer.start(250)
+        self.refresh()
+
+    def _activated(self, reason):
+        if reason == _TRAY_TRIGGER:
+            self._show_panel()
+
+    def _toggle_capture(self):
+        self.backend.set_capture_paused(not self.backend.capture_paused())
+
+    def set_theme_checked(self, key):
+        for action, action_key in self.theme_actions.items():
+            action.setChecked(action_key == key)
+
+    def refresh(self):
+        active = self.stack_window.is_collecting()
+        hidden = active and not self.stack_window.isVisible()
+        self.stack_action.setText("Stack activo · oculto" if hidden else "Stack activo" if active else "Nexus Stack · en pausa")
+        paused = self.backend.capture_paused()
+        self.capture_action.setText("Reanudar captura del portapapeles" if paused else "Pausar captura del portapapeles")
+        self.tray.setToolTip("Nexus · captura en pausa" + self._suffix if paused else "Nexus" + self._suffix)
+        self.tray.setIcon(tray_icon(paused))
+
+    def show(self, notices=()):
+        self.tray.show()
+        if notices:
+            self.tray.showMessage("Nexus", "\n".join(notices), _TRAY_WARNING, 8000)
+
+    def close(self):
+        self._timer.stop()
+        self.tray.hide()
 
 def toggle_stack_window(stack_window, timeline, paste):
     """Explicit hotkey is the only path that opens Stack and enables capture.
@@ -257,7 +343,8 @@ def _run_windows(lifetime):
         logging.getLogger("nexus.startup").info("source=%s sha256=%s pid=%s", source, digest, os.getpid())
     lifetime.callback(handler.close)
     lifetime.callback(root.removeHandler, handler)
-    app = QApplication(sys.argv); app.setApplicationName("Nexus")
+    set_app_user_model_id()  # before any window: taskbar identity + icon are Nexus', not pythonw's
+    app = QApplication(sys.argv); app.setApplicationName("Nexus"); app.setWindowIcon(app_icon())
     app.setQuitOnLastWindowClosed(False); app.setFont(windows_design.font()); app.setStyleSheet(windows_design.qss())
     settings = windows_sandbox.apply_settings(load_settings())
     shortcut_store = ShortcutStore(settings, windows_sandbox.default_overrides())
@@ -393,46 +480,29 @@ def _run_windows(lifetime):
     notices += hotkeys.notices
     settings_backend = SettingsBackend(settings, shortcut_store, hotkeys, timeline, notices)
     timeline.configure_settings(settings_backend)
-    tray = QSystemTrayIcon(QIcon(str(RESOURCES_DIR / "nexus-tray.png"))); tray.setToolTip("Nexus")
-    menu = QMenu()
-    menu.addAction("Abrir Nexus", show_panel)
-    stack_action = menu.addAction("Nexus Stack", show_stack)
-    def update_stack_label():
-        active = stack_window.is_collecting()
-        hidden = active and not stack_window.isVisible()
-        stack_action.setText("Stack activo · oculto" if hidden else "Stack activo" if active else "Nexus Stack · en pausa")
-    stack_window.collecting_changed.connect(lambda _active: update_stack_label())
-    tray_state_timer = QTimer(app)
-    tray_state_timer.timeout.connect(update_stack_label)
-    tray_state_timer.start(250)
-    lifetime.callback(tray_state_timer.stop)
-    update_stack_label()
     def show_pinboards():
         stack_window.fade_hide()
         paste.remember_target()
         if not timeline.isVisible(): timeline.show_and_focus()
         timeline.show_pinboard_management()
-    menu.addAction("Administrar pinboards y biblioteca…", show_pinboards)
-    menu.addSeparator()
-    theme_menu = menu.addMenu("Estilo")
-    theme_actions = {}
+    def show_settings():
+        stack_window.fade_hide()
+        paste.remember_target()
+        timeline.show_settings_management()
+    tray_controller = None
     def apply_theme(key):
         styles.set_active_theme(key); styles.clear_icon_cache(); app.setStyleSheet(windows_design.qss())
         apply_native_theme_material()
-        for action, action_key in theme_actions.items(): action.setChecked(action_key == key)
+        if tray_controller is not None: tray_controller.set_theme_checked(key)
         timeline.set_theme_selection(key)
         timeline.apply_visual_theme(); stack_window.apply_visual_theme()
-    for theme_key, theme_label in windows_design.theme_choices():
-        action = theme_menu.addAction(theme_label); action.setCheckable(True)
-        action.setChecked(theme_key == styles.active_theme().key)
-        action.triggered.connect(lambda _checked, key=theme_key: apply_theme(key))
-        theme_actions[action] = theme_key
     timeline.theme_requested.connect(apply_theme)
-    menu.addSeparator(); menu.addAction("Salir de Nexus", app.quit)
-    tray.setContextMenu(menu); tray.show()
-    lifetime.callback(tray.hide)
-    if notices:
-        tray.showMessage("Nexus", "\n".join(notices), QSystemTrayIcon.MessageIcon.Warning, 8000)
+    tray_controller = TrayController(
+        app, settings_backend, stack_window, show_panel=show_panel, show_stack=show_stack,
+        show_pinboards=show_pinboards, show_settings=show_settings, apply_theme=apply_theme,
+    )
+    tray_controller.show(notices)
+    lifetime.callback(tray_controller.close)
     app.aboutToQuit.connect(lifetime.close)
     if os.environ.get("NEXUS_OPEN_ON_START") == "1":
         QTimer.singleShot(250, show_panel)

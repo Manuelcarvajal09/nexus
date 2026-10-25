@@ -828,6 +828,7 @@ class WindowsTimelineWindow(TimelineWindow):
         self._settings_page = SettingsPage(backend, windows_design.theme_choices(), self)
         self._settings_page.theme_selected.connect(self.theme_requested.emit)
         self._settings_page.back_requested.connect(self.close_pinboard_manager)
+        backend.on_capture_changed(lambda _paused: self._settings_page.sync_capture())
         self._settings_page.sync_theme(styles.active_theme().key)
         self._settings_page.back_button.setIcon(windows_design.icon("back", windows_design.palette().muted, 16))
         self._pages.addWidget(self._settings_page)
