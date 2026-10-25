@@ -27,6 +27,16 @@ import pytest
 from nexus_linux.storage import StorageService
 
 
+@pytest.fixture(autouse=True)
+def deterministic_system_theme():
+    """Liquid Glass follows the Windows light/dark preference; tests must not depend on
+    the machine they run on, so they start from 'dark' unless they choose otherwise."""
+    from nexus_linux import windows_system_theme
+    windows_system_theme.set_override("dark")
+    yield
+    windows_system_theme.set_override(None)
+
+
 class FakePasteService:
     def __init__(self, fail_write: bool = False, fail_paste: bool = False):
         self.written: list = []

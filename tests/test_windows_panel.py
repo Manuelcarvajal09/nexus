@@ -423,7 +423,8 @@ def test_navigation_shows_only_history_and_real_boards_plus_options(panel):
     assert "+ Pinboard" not in texts
     assert "Pinboards" not in texts
     options = panel._management_btn
-    assert options is not None and options.accessibleName() == "Administrar Pinboards"
+    assert options is not None and options.accessibleName() == "Más opciones: Pinboards y Configuración"
+    assert options.text() == "" and not options.icon().isNull()   # a drawn icon, not a Unicode glyph
     assert [action.text() for action in options.menu().actions()] == ["Administrar Pinboards"]
     options.menu().actions()[0].trigger()
     assert panel._pages.currentIndex() == 1

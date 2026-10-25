@@ -8,8 +8,8 @@ The surface owns its fill: do not give it a second QSS background/border.
 
 import os
 
-from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient
 from PySide6.QtWidgets import QWidget
 
 from . import styles
@@ -125,18 +125,24 @@ class WindowsGlassSurface(QWidget):
                 painter.fillRect(rect, body)
             painter.restore()
             return
-        # Liquid Glass: translucent cool tint over real DWM Acrylic.
-        base = QColor(tokens.panel)
-        top = base.lighter(132); top.setAlpha(68)
-        middle = QColor(base); middle.setAlpha(42)
-        bottom = base.darker(112); bottom.setAlpha(52)
-        body = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        body.setColorAt(0, top); body.setColorAt(.46, middle); body.setColorAt(1, bottom)
-        painter.fillRect(rect, body)
-        sheen = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-        sheen.setColorAt(0, QColor(255, 255, 255, 18))
-        sheen.setColorAt(.35, QColor(255, 255, 255, 0))
-        painter.fillRect(rect, sheen)
+        # Liquid Glass over real DWM Acrylic (which does the blur and the base
+        # tint). Qt adds only what Acrylic cannot: a flat tint for legibility, a
+        # soft reflection that fades within 72 px of the top edge, and one inner
+        # highlight line along that edge. No diagonal wash, no second outline.
+        from .windows_design import glass
+        g = glass()
+        painter.fillRect(rect, QColor(g.tint))
+        height = min(72.0, rect.height())
+        reflection = QLinearGradient(rect.left(), rect.top(), rect.left(), rect.top() + height)
+        reflection.setColorAt(0, QColor(g.specular))
+        reflection.setColorAt(1, QColor(255, 255, 255, 0))
+        painter.fillRect(QRectF(rect.left(), rect.top(), rect.width(), height), reflection)
+        clear = QColor(g.rim_top); clear.setAlpha(0)
+        line = QLinearGradient(rect.left(), 0, rect.right(), 0)
+        line.setColorAt(0, clear); line.setColorAt(.10, QColor(g.rim_top))
+        line.setColorAt(.90, QColor(g.rim_top)); line.setColorAt(1, clear)
+        painter.setPen(QPen(QBrush(line), 1))
+        painter.drawLine(QPointF(rect.left(), rect.top() + .5), QPointF(rect.right(), rect.top() + .5))
         painter.restore()
 
     def _paint_native_backdrop_legacy(self, painter: QPainter, tokens) -> None:

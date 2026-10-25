@@ -12,6 +12,7 @@ There is deliberately no process-wide native filter, hook or polling.
 from __future__ import annotations
 
 import ctypes
+import dataclasses
 import sys
 from dataclasses import dataclass, field
 from typing import Literal
@@ -47,6 +48,9 @@ class BackdropPreferences:
     power_saver: bool | None = None
     remote_session: bool | None = None
     can_native_paint: bool = False  # external surface probe, not an OS preference
+    # Acrylic follows the window dark/light attribute: dark = DWMWA_USE_IMMERSIVE_DARK_MODE on.
+    dark_mode: bool = True
+    border_color: int = 0x635346      # COLORREF of the single native contour
 
 
 @dataclass(frozen=True)
@@ -276,8 +280,8 @@ class NativeBackend:
         # neutralizes Desktop Acrylic on this Qt/DWM profile. A real native
         # COLORREF border completes the single silhouette (#465363).
         import os as _os
-        border = 0xFFFFFFFE if _os.environ.get("NEXUS_SINGLE_CONTOUR", "1") == "0" else 0x635346
-        for attr, value, name in ((20, 1, "dark"),
+        border = 0xFFFFFFFE if _os.environ.get("NEXUS_SINGLE_CONTOUR", "1") == "0" else prefs.border_color
+        for attr, value, name in ((20, 1 if prefs.dark_mode else 0, "dark"),
                                   (34, border, "border"), (38, 3, "backdrop")):
             if not record(name, lambda a=attr, v=value: self.api.set_attribute(hwnd, a, v)):
                 return fallback(f"{name}_failed")
@@ -310,7 +314,8 @@ class BackdropController(QObject):
     _PROPERTY = "_nexus_documented_backdrop_controller"
 
     def __init__(self, window, *, backend=None, request="desktop_acrylic",
-                 can_native_paint=lambda window: False, on_state=lambda state: None):
+                 can_native_paint=lambda window: False, on_state=lambda state: None,
+                 variant=lambda: (True, 0x635346)):
         if request not in ("desktop_acrylic", "satin"):
             raise ValueError("invalid_backdrop_request")
         if window.property(self._PROPERTY):
@@ -318,6 +323,9 @@ class BackdropController(QObject):
         super().__init__(window)
         self.window, self.backend, self.request = window, backend, request
         self.can_native_paint, self.on_state = can_native_paint, on_state
+        # variant() -> (dark_mode, border COLORREF): read again on every apply, so a
+        # Windows light/dark switch re-tints the Acrylic of the same HWND.
+        self.variant = variant
         self._closed = False
         self._applying = False
         self._timer = QTimer(self)
@@ -380,6 +388,8 @@ class BackdropController(QObject):
                     self.backend = NativeBackend()
                 try:
                     prefs = self.backend.api.preferences(can_native_paint=bool(self.can_native_paint(self.window)))
+                    dark, border = self.variant()
+                    prefs = dataclasses.replace(prefs, dark_mode=bool(dark), border_color=int(border))
                 except Exception:
                     # A preference-read exception must not leave prior material
                     # active. Unknown prefs conservatively reset this HWND only.

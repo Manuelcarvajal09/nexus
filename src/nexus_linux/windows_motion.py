@@ -89,7 +89,7 @@ class WindowsMotion(QObject):
         animation.setDuration(duration)
         animation.setStartValue(start)
         animation.setEndValue(end)
-        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        animation.setEasingCurve(QEasingCurve.Type.OutQuint)
 
         def finished():
             if self._window_animation is not animation:
@@ -149,7 +149,7 @@ class WindowsMotion(QObject):
         animation.setDuration(MOTION_PAGE_MS)
         animation.setStartValue(0.0)
         animation.setEndValue(1.0)
-        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        animation.setEasingCurve(QEasingCurve.Type.OutQuint)
         animation.finished.connect(self._cancel_page)
         animation.start()
 
@@ -169,7 +169,7 @@ def fade_in(widget: QWidget, duration: int = MOTION_PAGE_MS, start: float = 0.0)
     animation.setDuration(duration)
     animation.setStartValue(start)
     animation.setEndValue(1.0)
-    animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+    animation.setEasingCurve(QEasingCurve.Type.OutQuint)
 
     def cleanup():
         if isValid(widget) and isValid(effect) and widget.graphicsEffect() is effect:
@@ -192,7 +192,7 @@ class SearchFocusHighlight(QWidget):
         self._strength = 0.0
         self._animation = QPropertyAnimation(self, b"strength", self)
         self._animation.setDuration(MOTION_FOCUS_MS)
-        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._animation.setEasingCurve(QEasingCurve.Type.OutQuint)
         line_edit.installEventFilter(self)
         self.setGeometry(line_edit.rect())
         self.show()

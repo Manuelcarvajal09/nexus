@@ -3,7 +3,7 @@
 import os
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QEasingCurve, QEvent, QPersistentModelIndex, QRectF, QSize, Qt, QVariantAnimation
+from PySide6.QtCore import QEasingCurve, QEvent, QPersistentModelIndex, QPointF, QRectF, QSize, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainterPath, QPen
 from PySide6.QtWidgets import QAbstractItemView, QStyle
 
@@ -37,7 +37,7 @@ class WindowsClipCardDelegate(ClipCardDelegate):
         self._animation.setDuration(MOTION_HOVER_MS)
         self._animation.setStartValue(0.0)
         self._animation.setEndValue(1.0)
-        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._animation.setEasingCurve(QEasingCurve.Type.OutQuint)
         self._animation.valueChanged.connect(self._frame)
         self._animation.finished.connect(self._finish_motion)
         if isinstance(parent, QAbstractItemView):
@@ -162,11 +162,13 @@ class WindowsClipCardDelegate(ClipCardDelegate):
                 QRectF(inner.left(), outer.bottom() - 26, inner.width(), 16))
 
     @staticmethod
-    def _text(painter, rect, text, size=13, color=None, weight=QFont.Weight.Normal, mono=False):
+    def _text(painter, rect, text, size=13, color=None, weight=QFont.Weight.Normal, mono=False, spacing=0.0):
         """Line-based wrapping with an explicitly elided final line."""
         painter.save()
         painter.setClipRect(rect, Qt.ClipOperation.IntersectClip)
         font = windows_design.font(size, weight=weight, mono=mono)
+        if spacing:
+            font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, spacing)
         painter.setFont(font)
         painter.setPen(QColor(color))
         metrics = QFontMetrics(font)
@@ -218,23 +220,37 @@ class WindowsClipCardDelegate(ClipCardDelegate):
         painter.setRenderHint(painter.RenderHint.Antialiasing)
         shape = QPainterPath()
         shape.addRoundedRect(outer, 16, 16)
+        glass = windows_design.glass()
         painter.fillPath(shape, _mix(tokens.card, tokens.card_hover, level))
+        if selected and glass is not None:
+            # Selection tints the glass with the accent, eased by the same animation level.
+            tint = QColor(tokens.accent_fill)
+            tint.setAlpha(round(tint.alpha() * min(1.0, level / .65)))
+            painter.fillPath(shape, tint)
         painter.setPen(QPen(QColor(tokens.accent if selected else tokens.border_hover if hovered else tokens.border), 1.5 if selected else 1))
         painter.drawPath(shape)
         painter.setClipPath(shape)
         band = QRectF(outer.left(), outer.top(), outer.width(), 38)
         painter.fillRect(band, _mix(tokens.card, semantic, .10 + level * .06))
+        if glass is not None:
+            # Reflection on the top edge of the glass card: one inner line, fading to the corners.
+            rim = QColor(glass.rim_top)
+            rim.setAlpha(round(rim.alpha() * (.55 if glass.dark else .9)))
+            painter.setPen(QPen(rim, 1))
+            painter.drawLine(QPointF(outer.left() + 16, outer.top() + 1.5), QPointF(outer.right() - 16, outer.top() + 1.5))
         painter.save()
         painter.setClipRect(header, Qt.ClipOperation.IntersectClip)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(semantic))
         painter.drawRoundedRect(QRectF(header.left(), header.top() + 6, 3, 10), 1.5, 1.5)
-        self._text(painter, header.adjusted(10, 0, -40, 0), TYPE_LABELS.get(detected, "Texto"), 11, tokens.text, QFont.Weight.DemiBold)
+        # Type label: small, uppercase and quiet, so title and content lead the hierarchy.
+        self._text(painter, header.adjusted(10, 0, -34, 0), TYPE_LABELS.get(detected, "Texto").upper(), 10,
+                   tokens.muted, QFont.Weight.DemiBold, spacing=.7)
         if index.row() < 9:
-            badge = QRectF(header.right() - 22, header.top(), 22, 21)
+            badge = QRectF(header.right() - 20, header.top() + 1, 20, 19)
             painter.setBrush(QColor(tokens.panel_raised))
             painter.drawRoundedRect(badge, 6, 6)
-            painter.setFont(windows_design.font(11, weight=QFont.Weight.DemiBold))
+            painter.setFont(windows_design.font(10, weight=QFont.Weight.DemiBold))
             painter.setPen(QColor(tokens.muted))
             painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, str(index.row() + 1))
         painter.restore()

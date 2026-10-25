@@ -32,8 +32,46 @@ class Palette:
     accent_ink: str = "#101A28"
 
 
+# Liquid Glass is the only adaptive theme: Dark and Light share one identity
+# (same geometry, same light-blue N, same rim/specular language) and differ in
+# tint, ink and fills. Colours written "#AARRGGBB" are translucent: the panel is
+# real DWM Acrylic, and cards/controls are glass layers composited over it, so
+# their *effective* contrast depends on what is behind Nexus (see test_glass_contrast).
+LIQUID_GLASS_DARK = Palette(
+    panel="#171C25", panel_raised="#1AFFFFFF", card="#8A0A0F18", card_hover="#9E111826",
+    border="#29FFFFFF", border_hover="#59FFFFFF", text="#F6F8FC", muted="#C9D3E1", faint="#B7C2D3",
+    accent="#B3CFF6", accent_fill="#1FB3CFF6", accent_ink="#101A28")
+LIQUID_GLASS_LIGHT = Palette(
+    panel="#F4F6FA", panel_raised="#B3FFFFFF", card="#99FFFFFF", card_hover="#B8FFFFFF",
+    border="#26111827", border_hover="#4D111827", text="#111827", muted="#344054", faint="#475467",
+    accent="#2563C9", accent_fill="#1A2563C9", accent_ink="#FFFFFF")
+
+
+@dataclass(frozen=True)
+class Glass:
+    """Painted layers of the glass material (all "#AARRGGBB"; see Palette)."""
+    dark: bool
+    tint: str           # flat tint laid over the Acrylic
+    specular: str       # soft reflection along the top edge
+    rim_top: str        # inner highlight line (top edge only: DWM owns the single outline)
+    control: str
+    control_hover: str
+    control_border: str
+    control_border_hover: str
+    menu: str           # pop-up menus are separate windows: nearly opaque
+    dwm_border: int     # COLORREF (0x00BBGGRR) for the single native contour
+
+
+GLASS_DARK = Glass(True, tint="#260B1019", specular="#14FFFFFF", rim_top="#52FFFFFF",
+                   control="#14FFFFFF", control_hover="#24FFFFFF", control_border="#2EFFFFFF",
+                   control_border_hover="#66FFFFFF", menu="#F2141A26", dwm_border=0x635346)
+GLASS_LIGHT = Glass(False, tint="#47FFFFFF", specular="#59FFFFFF", rim_top="#E6FFFFFF",
+                    control="#80FFFFFF", control_hover="#B3FFFFFF", control_border="#2E111827",
+                    control_border_hover="#59111827", menu="#F5F8FAFD", dwm_border=0xD1C3B9)
+
+
 PALETTES = {
-    "liquid_glass": Palette("#171C25", "#202733", "#252D3A", "#303C4D", "#3D4859", "#6F809A", "#F3F6FC", "#B1BDCF", "#93A2B8", "#B3CFF6", "#334965"),
+    "liquid_glass": LIQUID_GLASS_DARK,
     "minimalist": Palette("#1B1E23", "#232830", "#292F38", "#333C48", "#414955", "#727F90", "#F5F7FA", "#B4BDCB", "#959FAE", "#D6DFEC", "#3D4858"),
     "midnight_teal": Palette("#06151B", "#0B242A", "#10383D", "#164A4E", "rgba(78, 221, 213, 0.22)", "rgba(78, 221, 213, 0.55)", "#E6FFFC", "#C4E4E2", "#A8CFCC", "#4EDDD5", "rgba(78, 221, 213, 0.16)", "#00201E"),
     "storem": Palette("#211E19", "#29261F", "#322D25", "#40392F", "#554A3B", "#88755C", "#FAF3E8", "#CCC0AA", "#B2A48E", "#E0BF85", "#58492E", "#201B11"),
@@ -48,12 +86,49 @@ WORKAREA_SIDE, WORKAREA_BOTTOM = 24, 28
 RADIUS_PANEL, RADIUS_CARD, RADIUS_CONTROL = 22, 16, 10
 MOTION_FAST_MS, MOTION_OPEN_MS, MOTION_PAGE_MS = 90, 130, 90
 STATUS_ERROR = "#F28B82"  # error text: >= 4.5:1 on every theme's panel and card
+MOTION_THEME_MS = 140  # Liquid Glass Light <-> Dark: content eases, the HWND never fades
 MOTION_OPEN_CONTENT_MS = 110  # content easing in when the panel opens (the HWND never fades)
 MOTION_HOVER_MS, MOTION_FOCUS_MS = 150, 110
 
 
+def is_adaptive() -> bool:
+    """Only Liquid Glass follows the Windows light/dark preference."""
+    return styles.active_theme().key == "liquid_glass"
+
+
+def is_light() -> bool:
+    if not is_adaptive():
+        return False
+    from . import windows_system_theme
+    return windows_system_theme.system_prefers_light()
+
+
 def palette() -> Palette:
+    if is_light():
+        return LIQUID_GLASS_LIGHT
     return PALETTES.get(styles.active_theme().key, PALETTES["liquid_glass"])
+
+
+def glass() -> Glass | None:
+    """Glass layer tokens for the active variant, or None for the solid themes."""
+    if not styles.active_theme().liquid_glass:
+        return None
+    return GLASS_LIGHT if is_light() else GLASS_DARK
+
+
+def native_variant() -> tuple[bool, int]:
+    """(dark_mode, DWM border COLORREF) for the window the backdrop is applied to."""
+    g = glass()
+    return (g.dark, g.dwm_border) if g is not None else (True, 0x635346)
+
+
+def rgba(color: str) -> str:
+    """QSS spelling of a colour: "#AARRGGBB" becomes rgba(r, g, b, a) (integer
+    alpha, which is what QSS honours reliably on Windows)."""
+    if isinstance(color, str) and color.startswith("#") and len(color) == 9:
+        a, r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5, 7))
+        return f"rgba({r}, {g}, {b}, {a})"
+    return color
 
 
 @lru_cache(maxsize=1)
@@ -95,11 +170,9 @@ def theme_choices():
             for key, label in styles.theme_choices()]
 
 
-@lru_cache(maxsize=128)
-def icon(name, color, size=18) -> QIcon:
-    """Small crisp line icons, no platform theme or Unicode glyph dependency."""
-    image = QPixmap(size * 2, size * 2)
-    image.setDevicePixelRatio(2)
+def _draw_icon(name, color, size, ratio) -> QPixmap:
+    image = QPixmap(round(size * ratio), round(size * ratio))
+    image.setDevicePixelRatio(ratio)
     image.fill(Qt.GlobalColor.transparent)
     painter = QPainter(image)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -113,6 +186,20 @@ def icon(name, color, size=18) -> QIcon:
         y = 8 if name == "down" else 12
         middle = 12 if name == "down" else 8
         painter.drawLine(5, y, 10, middle); painter.drawLine(10, middle, 15, y)
+    elif name == "more":
+        # Three dots on the optical centre: drawn, not the "⋯" glyph, whose
+        # baseline and weight changed with the font and collided with the
+        # native menu arrow.
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(color))
+        for x in (4.5, 10, 15.5):
+            painter.drawEllipse(QPointF(x, 10), 1.55, 1.55)
+    elif name == "chevron_down":
+        painter.drawLine(QPointF(5.5, 8), QPointF(10, 12.5)); painter.drawLine(QPointF(10, 12.5), QPointF(14.5, 8))
+    elif name == "chevron_right":
+        painter.drawLine(QPointF(8, 5.5), QPointF(12.5, 10)); painter.drawLine(QPointF(12.5, 10), QPointF(8, 14.5))
+    elif name == "check":
+        painter.drawLine(QPointF(4.5, 10.5), QPointF(8.5, 14.5)); painter.drawLine(QPointF(8.5, 14.5), QPointF(15.5, 6))
     elif name == "plus":
         painter.drawLine(4, 10, 16, 10); painter.drawLine(10, 4, 10, 16)
     elif name == "history":
@@ -131,22 +218,35 @@ def icon(name, color, size=18) -> QIcon:
     elif name == "link":
         painter.drawRoundedRect(QRectF(2, 6, 10, 8), 4, 4); painter.drawRoundedRect(QRectF(8, 6, 10, 8), 4, 4)
     painter.end()
-    return QIcon(image)
+    return image
+
+
+@lru_cache(maxsize=256)
+def icon(name, color, size=18) -> QIcon:
+    """Small crisp line icons, no platform theme or Unicode glyph dependency.
+
+    Rendered at 1x, 2x and 3x so Qt picks the sharp one at 100%-300% scaling."""
+    result = QIcon()
+    for ratio in (1, 2, 3):
+        result.addPixmap(_draw_icon(name, color, size, ratio))
+    return result
 
 
 def qss() -> str:
-    p = palette()
+    from dataclasses import astuple
+    p = Palette(*[rgba(value) for value in astuple(palette())])   # QSS spelling of every colour
     family = font_family()
-    glass = styles.active_theme().liquid_glass
-    # Liquid Glass controls are translucent enough to reveal the native
-    # material, never flat opaque grey rectangles.
-    control_bg = "rgba(48, 78, 104, 96)" if glass else p.panel_raised
-    control_hover = "rgba(64, 100, 130, 126)" if glass else p.card_hover
-    card_bg = "rgba(42, 70, 94, 90)" if glass else p.card
-    card_hover = "rgba(60, 92, 120, 118)" if glass else p.card_hover
-    control_border = "rgba(204, 232, 255, 92)" if glass else p.border
-    control_border_hover = "rgba(235, 248, 255, 166)" if glass else p.border_hover
-    menu_bg = "rgba(10, 18, 28, 244)" if glass else p.panel_raised
+    g = glass()
+    # Liquid Glass controls are translucent layers over the real Acrylic, never
+    # flat grey rectangles; every other theme keeps its solid fills.
+    control_bg = rgba(g.control) if g else p.panel_raised
+    control_hover = rgba(g.control_hover) if g else p.card_hover
+    soft_hover = control_hover if g else p.card        # hover of flat buttons, chips, close
+    focus_bg = control_hover if g else p.card_hover
+    card_bg, card_hover = p.card, p.card_hover
+    control_border = rgba(g.control_border) if g else p.border
+    control_border_hover = rgba(g.control_border_hover) if g else p.border_hover
+    menu_bg = rgba(g.menu) if g else p.panel_raised
     # Keep shared editor/row selectors as a compatibility base, then replace
     # every surface/control family for Windows. Never replace styles.PRESETS.
     return styles.qss() + f"""
@@ -156,7 +256,7 @@ def qss() -> str:
     QStackedWidget, QScrollArea, QAbstractScrollArea {{ background: transparent; border: none; }}
     QLabel {{ background: transparent; border: none; }}
     QLabel#titleCompact {{ font-size: 19px; font-weight: 700; letter-spacing: -0.6px; color: {p.text}; }}
-    QLabel#title {{ font-size: 19px; font-weight: 600; letter-spacing: -0.4px; }}
+    QLabel#title {{ font-size: 19px; font-weight: 600; letter-spacing: -0.4px; color: {p.text}; }}
     QLabel#subtitle, QLabel#rowMeta {{ color: {p.muted}; font-size: 11px; }}
     QLabel#rowTitle {{ font-size: 13px; font-weight: 500; color: {p.text}; }}
     QLabel#contextEyebrow {{ color: {p.faint}; font-size: 10px; font-weight: 600; letter-spacing: 1.2px; }}
@@ -165,7 +265,7 @@ def qss() -> str:
     QLineEdit {{ background: {control_bg}; border: 1px solid {control_border}; border-radius: 10px;
         padding: 9px 12px; color: {p.text}; font-size: 13px; selection-background-color: {p.accent_fill}; }}
     QLineEdit:hover {{ background: {control_hover}; border-color: {control_border_hover}; }}
-    QLineEdit:focus {{ background: {card_hover}; border: 1px solid {p.accent}; }}
+    QLineEdit:focus {{ background: {focus_bg}; border: 1px solid {p.accent}; }}
     QLineEdit:disabled {{ color: {p.faint}; border-color: {control_border}; }}
     QLineEdit#quickSearch {{ padding: 9px 12px; border-radius: 12px; font-size: 13px;
         background: {control_bg}; border-color: {control_border}; }}
@@ -180,21 +280,21 @@ def qss() -> str:
     QPushButton#primary:hover {{ background: {p.text}; color: {p.accent_ink}; border-color: {p.text}; }}
     QPushButton#primary:disabled {{ background: {p.card}; color: {p.faint}; border-color: {p.border}; }}
     QPushButton#flat, QPushButton#expandToggle {{ background: transparent; border: 1px solid transparent; border-radius: 9px; color: {p.muted}; padding: 6px 10px; font-size: 11px; }}
-    QPushButton#flat:hover, QPushButton#expandToggle:hover {{ background: {card_bg}; border-color: {control_border}; color: {p.text}; }}
+    QPushButton#flat:hover, QPushButton#expandToggle:hover {{ background: {soft_hover}; border-color: {control_border}; color: {p.text}; }}
     QPushButton#flat:focus, QPushButton#expandToggle:focus {{ border-color: {p.accent}; }}
     QToolButton#navigationOptions {{ background: transparent; border: 1px solid transparent; border-radius: 9px;
         color: {p.muted}; padding: 0; min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px; font-size: 16px; }}
-    QToolButton#navigationOptions:hover {{ background: {card_bg}; border-color: {control_border}; color: {p.text}; }}
+    QToolButton#navigationOptions:hover {{ background: {soft_hover}; border-color: {control_border}; color: {p.text}; }}
     QToolButton#navigationOptions:checked {{ background: {p.accent_fill}; border-color: {p.border_hover}; color: {p.accent}; }}
     QPushButton#pinboardChipCompact {{ background: transparent; border: 1px solid transparent; border-radius: 10px;
         color: {p.muted}; font-size: 12px; font-weight: 500; padding: 7px 12px; }}
-    QPushButton#pinboardChipCompact:hover {{ background: {card_bg}; color: {p.text}; border-color: {control_border}; }}
+    QPushButton#pinboardChipCompact:hover {{ background: {soft_hover}; color: {p.text}; border-color: {control_border}; }}
     QPushButton#pinboardChipCompact:checked, QPushButton#flat:checked, QPushButton#toggleActive {{
         background: {p.accent_fill}; color: {p.accent}; border: 1px solid {p.border_hover}; font-weight: 600; }}
     QPushButton#pinboardChipCompact:focus {{ border-color: {p.accent}; }}
     QPushButton#closeButton {{ background: transparent; border: 1px solid transparent; border-radius: 9px;
         min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px; padding: 0; color: {p.muted}; font-size: 18px; }}
-    QPushButton#closeButton:hover {{ background: {card_bg}; border-color: {control_border}; color: {p.text}; }}
+    QPushButton#closeButton:hover {{ background: {soft_hover}; border-color: {control_border}; color: {p.text}; }}
     QPushButton#closeButton:focus {{ border-color: {p.accent}; }}
     QPushButton[colorSwatch="true"] {{ background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 0; }}
     QPushButton[colorSwatch="true"]:hover {{ background: {p.card_hover}; }}
@@ -232,9 +332,10 @@ def qss() -> str:
     QToolTip {{ padding: 6px 9px; font-size: 11px; }}
     QScrollBar:horizontal {{ background: transparent; height: 6px; margin: 0; }}
     QScrollBar:vertical {{ background: transparent; width: 6px; margin: 0; }}
-    QScrollBar::handle:horizontal, QScrollBar::handle:vertical {{ background: {p.border_hover}; border-radius: 3px; min-width: 24px; min-height: 24px; }}
+    QScrollBar::handle:horizontal, QScrollBar::handle:vertical {{ background: {control_border_hover}; border-radius: 3px; min-width: 24px; min-height: 24px; }}
     QScrollBar::handle:hover {{ background: {p.accent}; }}
     QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; background: transparent; border: none; }}
     QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
-    QPushButton::menu-indicator {{ subcontrol-origin: padding; subcontrol-position: center right; right: 3px; width: 8px; }}
+    /* The native drop-down arrow is replaced by a drawn chevron icon: it used to collide with the glyph of the options button. */
+    QPushButton::menu-indicator, QToolButton::menu-indicator {{ image: none; width: 0; height: 0; }}
     """

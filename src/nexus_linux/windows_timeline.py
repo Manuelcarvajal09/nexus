@@ -388,7 +388,7 @@ class WindowsTimelineWindow(TimelineWindow):
         self._sidebar.setMaximumWidth(156)
         self._sidebar.layout().setContentsMargins(0, 0, 0, 0)
         self._sidebar.layout().setSpacing(windows_design.INTERNAL_GAP)
-        self._sidebar._edit_btn.setText("…")
+
         self._sidebar._edit_btn.setAccessibleName("Opciones del pinboard")
         body.addWidget(self._sidebar)
         self._editor_scroll = QScrollArea()
@@ -499,6 +499,13 @@ class WindowsTimelineWindow(TimelineWindow):
         self._brand.setPixmap(windows_design.icon("brand", p.accent, 24).pixmap(24, 24))
         self._close_btn.setIcon(windows_design.icon("close", p.muted, 16))
         self._search_action.setIcon(windows_design.icon("search", p.muted))
+        # Drawn chevron (right side) instead of the native menu arrow.
+        self._style_btn.setIcon(windows_design.icon("chevron_down", p.muted, 12))
+        self._style_btn.setIconSize(QSize(12, 12))
+        self._style_btn.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self._sidebar._edit_btn.setText("")
+        self._sidebar._edit_btn.setIcon(windows_design.icon("more", p.muted, 18))
+        self._sidebar._edit_btn.setIconSize(QSize(18, 18))
         self._back_btn.setText("Volver")
         self._back_btn.setIcon(windows_design.icon("back", p.muted, 16))
         if getattr(self, "_settings_page", None) is not None:
@@ -564,9 +571,9 @@ class WindowsTimelineWindow(TimelineWindow):
         self._pinboard_row.addStretch()
         options = QToolButton()
         options.setObjectName("navigationOptions")
-        options.setText("⋯")
-        options.setToolTip("Administrar Pinboards")
-        options.setAccessibleName("Administrar Pinboards")
+        options.setIconSize(QSize(18, 18))
+        options.setToolTip("Más opciones")
+        options.setAccessibleName("Más opciones: Pinboards y Configuración")
         options.setCheckable(True)
         options.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(options)
@@ -591,6 +598,7 @@ class WindowsTimelineWindow(TimelineWindow):
         self._sync_chip_widths()
         if hasattr(self, "_management_btn"):
             self._management_btn.setChecked(in_manager)
+            self._management_btn.setIcon(windows_design.icon("more", p.accent if in_manager else p.muted, 18))
 
     def _sync_chip_widths(self):
         """Reserve enough room for the checked (bold) label on every theme.

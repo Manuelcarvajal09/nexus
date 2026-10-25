@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QGraphicsOpacityEffect, QWidget
 from PySide6.QtTest import QTest
 
 from nexus_linux import styles
+from nexus_linux.windows_design import GLASS_DARK
 from nexus_linux.windows_material import WindowsGlassSurface
 from nexus_linux.windows_motion import WindowsMotion
 
@@ -19,7 +20,7 @@ def design_contract(monkeypatch):
     # The sibling design module is delivered independently. Test its public
     # contract without depending on its implementation or changing shared files.
     tokens = SimpleNamespace(panel="#14171D", border="#303640")
-    design = SimpleNamespace(palette=lambda: tokens, motion_enabled=lambda: True)
+    design = SimpleNamespace(palette=lambda: tokens, motion_enabled=lambda: True, glass=lambda: GLASS_DARK)
     monkeypatch.setitem(sys.modules, "nexus_linux.windows_design", design)
     monkeypatch.delenv("NEXUS_REDUCED_MOTION", raising=False)
     return design

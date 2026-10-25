@@ -8,8 +8,9 @@ from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 from . import paths, styles, type_detection
-from . import windows_design, windows_sandbox
+from . import windows_design, windows_sandbox, windows_system_theme
 from .windows_icons import app_icon, set_app_user_model_id, tray_icon
+from .windows_motion import fade_in
 from .windows_backdrop import BackdropController, NativeBackend
 from .preview_service import PreviewService
 from .windows_stack import WindowsClipStack, WindowsStackWindow
@@ -313,12 +314,16 @@ def toggle_stack_window(stack_window, timeline, paste):
     return True
 
 class HotkeyFilter(QAbstractNativeEventFilter):
-    def __init__(self, callback): super().__init__(); self.callback = callback
+    def __init__(self, callback, on_theme_message=None):
+        super().__init__(); self.callback = callback; self.on_theme_message = on_theme_message
     def nativeEventFilter(self, event_type, message):
         if event_type == b"windows_generic_MSG":
             import ctypes
             msg = ctypes.wintypes.MSG.from_address(int(message))
             if msg.message == WM_HOTKEY: self.callback(int(msg.wParam)); return True, 0
+            if self.on_theme_message is not None and msg.message == windows_system_theme.WM_SETTINGCHANGE:
+                if windows_system_theme.is_theme_message(int(msg.message), windows_system_theme.parameter_of(int(msg.lParam))):
+                    self.on_theme_message()
         return False, 0
 
 def main():
@@ -394,14 +399,15 @@ def _run_windows(lifetime):
             window._surface.set_native_backdrop(state.native_enabled)
             window.update()
             logging.getLogger("nexus.backdrop").info(
-                "window=%s requested=%s applied=%s native_enabled=%s visual_verified=%s reason=%s hwnd=%#x readback=%s hresults=%s",
+                "window=%s requested=%s applied=%s native_enabled=%s visual_verified=%s reason=%s hwnd=%#x readback=%s hresults=%s dark=%s",
                 type(window).__name__, state.requested, state.applied, state.native_enabled, state.verified_visual,
-                state.reason, state.hwnd, state.readback, state.hresults,
+                state.reason, state.hwnd, state.readback, state.hresults, windows_design.native_variant()[0],
             )
         controller = BackdropController(
             window, backend=native_backend,
             request="desktop_acrylic",
             can_native_paint=native_surface_matches_probe, on_state=update_surface,
+            variant=windows_design.native_variant,
         )
         window._backdrop_controller = controller
         backdrops[window] = controller
@@ -418,6 +424,7 @@ def _run_windows(lifetime):
         request = "desktop_acrylic"
         for controller in backdrops.values():
             controller.set_request(request)
+            controller.schedule()  # re-read the glass variant: dark/light Acrylic + border of the same HWND
     apply_native_theme_material()
     paste_watcher = WindowsPasteWatcher(app)
     lifetime.callback(paste_watcher.stop)
@@ -471,7 +478,30 @@ def _run_windows(lifetime):
     def hotkey(identifier):
         if identifier == PANEL_HOTKEY: show_panel()
         elif identifier == STACK_HOTKEY: show_stack()
-    filter_ = HotkeyFilter(hotkey); app.installNativeEventFilter(filter_)
+    # Liquid Glass follows the Windows light/dark preference, live. Windows sends
+    # WM_SETTINGCHANGE("ImmersiveColorSet"); Qt's colorSchemeChanged is a second trigger.
+    # Nothing is written to Windows: the preference is only read.
+    theme_watcher = windows_system_theme.SystemThemeWatcher(app)
+    lifetime.callback(theme_watcher.close)
+    if windows_sandbox.active():
+        # Sandbox only: flip the Liquid Glass variant live by writing light|dark into
+        # <sandbox config>/system-theme.txt (tools/windows_acceptance.py theme ...).
+        # The real Windows setting is never touched; deleting the file returns to it.
+        theme_file, from_file = paths.CONFIG_DIR / "system-theme.txt", [False]
+        def poll_theme_file():
+            try:
+                value = theme_file.read_text(encoding="utf-8").strip().lower()
+            except OSError:
+                value = ""
+            if value in ("light", "dark") and windows_system_theme.override() != value:
+                from_file[0] = True
+                windows_system_theme.set_override(value); theme_watcher.notify()
+            elif value not in ("light", "dark") and from_file[0]:
+                from_file[0] = False
+                windows_system_theme.set_override(None); theme_watcher.notify()
+        theme_poll = QTimer(app); theme_poll.timeout.connect(poll_theme_file); theme_poll.start(500)
+        lifetime.callback(theme_poll.stop)
+    filter_ = HotkeyFilter(hotkey, on_theme_message=theme_watcher.notify); app.installNativeEventFilter(filter_)
     lifetime.callback(app.removeNativeEventFilter, filter_)
     # RegisterHotKey needs a real HWND so Windows delivers WM_HOTKEY to Qt's
     # native event dispatcher.  This host is intentionally never shown.
@@ -500,6 +530,14 @@ def _run_windows(lifetime):
         timeline.set_theme_selection(key)
         timeline.apply_visual_theme(); stack_window.apply_visual_theme()
     timeline.theme_requested.connect(apply_theme)
+    def system_theme_changed(is_light):
+        logging.getLogger("nexus.theme").info("system theme changed light=%s adaptive=%s", is_light, windows_design.is_adaptive())
+        if not windows_design.is_adaptive():
+            return  # the solid themes ignore the Windows preference
+        apply_theme(styles.active_theme().key)
+        if timeline.isVisible():
+            fade_in(timeline._pages, windows_design.MOTION_THEME_MS, start=.55)  # content eases to the new variant
+    theme_watcher.changed.connect(system_theme_changed)
     tray_controller = TrayController(
         app, settings_backend, stack_window, show_panel=show_panel, show_stack=show_stack,
         show_pinboards=show_pinboards, show_settings=show_settings, apply_theme=apply_theme,
