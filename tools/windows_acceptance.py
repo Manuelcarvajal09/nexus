@@ -213,6 +213,19 @@ def cmd_stop(_args) -> int:
     return 0
 
 
+def cmd_theme(args) -> int:
+    """Flip Liquid Glass between Light and Dark INSIDE the isolated run (never the Windows setting)."""
+    target = sandbox_run.sandbox_layout()[1] / "Nexus" / "config" / "system-theme.txt"
+    if args.value == "real":
+        target.unlink(missing_ok=True)
+        print("La prueba vuelve a seguir el tema real de Windows.")
+        return 0
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(args.value, encoding="utf-8")
+    print(f"Liquid Glass de la prueba -> {args.value} (se aplica en ~1 s; tu configuración de Windows no cambia).")
+    return 0
+
+
 def cmd_status(_args) -> int:
     state = load_state()
     running = list_nexus_processes()
@@ -234,9 +247,11 @@ def main() -> int:
     start.add_argument("--code", help="carpeta con una copia del código (git archive) en vez de este árbol de trabajo")
     sub.add_parser("stop")
     sub.add_parser("status")
+    theme = sub.add_parser("theme", help="alternar Liquid Glass Light/Dark solo dentro de la prueba")
+    theme.add_argument("value", choices=("light", "dark", "real"))
     args = parser.parse_args()
     try:
-        return {"start": cmd_start, "stop": cmd_stop, "status": cmd_status}[args.command](args)
+        return {"start": cmd_start, "stop": cmd_stop, "status": cmd_status, "theme": cmd_theme}[args.command](args)
     except AcceptanceError as error:
         print(f"ABORTADO: {error}")
         return 2

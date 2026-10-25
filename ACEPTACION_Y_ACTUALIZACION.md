@@ -192,7 +192,18 @@ Cambia con «Estilo» (panel o bandeja) y en cada tema revisa: Historial con tí
 - [ ] L1. «Salir de Nexus» del ícono de la prueba cierra solo la prueba; **tu Nexus habitual sigue funcionando** (`Ctrl+Shift+V` lo abre).
 - [ ] L2. `status` muestra «Prueba aislada: cerrada».
 
-**Criterio:** apto para actualizar si A–L están marcadas. Cualquier fallo en E, F, G (G5 incluido) o L bloquea la actualización.
+### M. Liquid Glass (refinamiento visual)
+*Tu Windows está en **modo claro**, así que Liquid Glass se abrirá en su variante Light. Puedes ver la otra sin tocar Windows con `python tools\windows_acceptance.py theme dark` (y `theme light` / `theme real`); solo afecta a la prueba.*
+- [ ] M1. Sobre tu escritorio, el panel se ve como **cristal**: se intuyen los colores y las formas de lo que hay detrás, desenfocados, sin manchas grises planas.
+- [ ] M2. **Light:** panel luminoso, texto oscuro nítido, tarjetas de cristal blanco con borde fino. **Dark** (`theme dark`): panel oscuro translúcido, tarjetas de cristal oscuro, texto claro.
+- [ ] M3. Cambia entre Light y Dark varias veces con la ventana abierta: se actualiza **sin recrear la ventana ni parpadear**, en menos de un segundo; el ícono de la bandeja y la N no cambian.
+- [ ] M4. **Cambio real de Windows** (opcional, tu decisión): con la prueba abierta, cambia Configuración de Windows → Personalización → Colores → «Elegir tu modo». La prueba debe seguirlo sola (con `theme real`).
+- [ ] M5. El menú `⋯` muestra **tres puntos limpios** (sin flecha ni símbolo encima); «Estilo» lleva un chevron pequeño a la derecha; los íconos de Historial, búsqueda, cerrar y volver comparten trazo y tamaño.
+- [ ] M6. Las tarjetas se distinguen claramente del fondo y los textos (título, contenido, origen, hora) se leen cómodamente, también la tarjeta seleccionada.
+- [ ] M7. Los otros cuatro temas siguen igual de legibles y **no** cambian con el tema de Windows.
+- [ ] M8. Con otro escalado de pantalla (si lo usas) los íconos siguen nítidos.
+
+**Criterio:** apto para actualizar si A–M están marcadas. Cualquier fallo en E, F, G (G5 incluido), L o M1–M3 bloquea la actualización.
 
 ---
 
