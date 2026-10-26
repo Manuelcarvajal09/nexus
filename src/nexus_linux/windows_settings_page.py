@@ -248,6 +248,15 @@ class SettingsPage(QWidget):
             self.theme_buttons[key] = button
         themes.addStretch()
         body.addLayout(themes)
+        # Optical glass: lens and per-backdrop contrast on controls and cards (Liquid Glass only).
+        self.optical_toggle = QPushButton()
+        self.optical_toggle.setObjectName("opticalToggle")
+        self.optical_toggle.setCheckable(True)
+        self.optical_toggle.toggled.connect(self._optical_toggled)
+        body.addWidget(self.optical_toggle, alignment=Qt.AlignmentFlag.AlignLeft)
+        self.optical_hint = self._sub("Al abrir el panel, Nexus lee un instante los píxeles de detrás para dar profundidad "
+                                      "al cristal y ajustar el contraste. Solo se guardan en memoria mientras el panel está abierto.")
+        body.addWidget(self.optical_hint)
         body.addStretch()
         self.refresh()
 
@@ -274,7 +283,23 @@ class SettingsPage(QWidget):
         self.capture_toggle.setChecked(not paused)
         self.capture_toggle.blockSignals(False)
         self._sync_capture_text()
+        self._sync_optical()
         self._after_change()
+
+    def _sync_optical(self):
+        available = hasattr(self.backend, "glass_optical")
+        self.optical_toggle.setVisible(available)
+        self.optical_hint.setVisible(available)
+        if available:
+            self.optical_toggle.blockSignals(True)
+            self.optical_toggle.setChecked(bool(self.backend.glass_optical()))
+            self.optical_toggle.blockSignals(False)
+            self.optical_toggle.setText("Cristal óptico activado" if self.optical_toggle.isChecked() else "Cristal óptico desactivado")
+            self.optical_toggle.setAccessibleName(self.optical_toggle.text())
+
+    def _optical_toggled(self, active):
+        self.backend.set_glass_optical(active)
+        self._sync_optical()
 
     def _after_change(self):
         every_default = all(self.backend.store.is_default(s.id) for s in SPECS if s.editable)

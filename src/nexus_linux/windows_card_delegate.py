@@ -46,6 +46,18 @@ class WindowsClipCardDelegate(ClipCardDelegate):
     def set_card_height(self, card_height):
         super().set_card_height(max(148, int(card_height)))
 
+    def set_optical(self, optical, window):
+        """Optical glass of the owning window: gives cards a contrast layer sized to the backdrop."""
+        self._optical, self._optical_window = optical, window
+
+    def _card_fill(self, base, outer, selected):
+        optical = getattr(self, "_optical", None)
+        if optical is None or not optical.active() or self._view is None:
+            return base
+        window = self._optical_window
+        top_left = self._view.viewport().mapTo(window, outer.topLeft().toPoint())
+        return optical.card_veil(base, QRectF(QPointF(top_left), outer.size()), selected)
+
     def set_card_width(self, width):
         self._card_width = max(180, int(width))
 
@@ -221,7 +233,7 @@ class WindowsClipCardDelegate(ClipCardDelegate):
         shape = QPainterPath()
         shape.addRoundedRect(outer, 16, 16)
         glass = windows_design.glass()
-        painter.fillPath(shape, _mix(tokens.card, tokens.card_hover, level))
+        painter.fillPath(shape, self._card_fill(_mix(tokens.card, tokens.card_hover, level), outer, selected))
         if selected and glass is not None:
             # Selection tints the glass with the accent, eased by the same animation level.
             tint = QColor(tokens.accent_fill)
@@ -229,6 +241,11 @@ class WindowsClipCardDelegate(ClipCardDelegate):
             painter.fillPath(shape, tint)
         painter.setPen(QPen(QColor(tokens.accent if selected else tokens.border_hover if hovered else tokens.border), 1.5 if selected else 1))
         painter.drawPath(shape)
+        optical = getattr(self, "_optical", None)
+        if optical is not None and glass is not None and optical.active():
+            from . import windows_optical
+            windows_optical.specular(painter, outer, 16, glass.dark, .22 if glass.dark else .4)
+            windows_optical.rim(painter, outer, 16, glass.dark, strength=.75 if not selected else .5)
         painter.setClipPath(shape)
         band = QRectF(outer.left(), outer.top(), outer.width(), 38)
         painter.fillRect(band, _mix(tokens.card, semantic, .10 + level * .06))

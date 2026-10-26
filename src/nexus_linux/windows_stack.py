@@ -16,6 +16,7 @@ from .windows_keyboard import PasteRequest
 from . import windows_design
 from .windows_material import upgrade_surface
 from .windows_motion import WindowsMotion
+from .windows_optical import OpticalGlass
 from .windows_backdrop import configure_native_host, handle_native_host_event
 from .windows_platform import activate_foreground_window
 
@@ -380,6 +381,7 @@ class WindowsStackWindow(StackWindow):
         self._height_timer.setSingleShot(True)
         self._height_timer.timeout.connect(self._adapt_height)
         self._paste_next_btn.setText("Pegar siguiente")
+        self._optical = OpticalGlass(self, self._optical_controls)
         self._paste_next_btn.setAccessibleName("Pegar el siguiente elemento del Stack")
         self._hint_label = next((label for label in self.findChildren(QLabel)
                                  if label.text().startswith("Clic derecho")), None)
@@ -495,10 +497,19 @@ class WindowsStackWindow(StackWindow):
         super().resizeEvent(event)
         self._paste_next_btn.setText("Pegar siguiente")
 
+    def _optical_controls(self):
+        buttons = [self._pause_btn, self._paste_next_btn]
+        buttons += [b for b in self.findChildren(QPushButton) if b.objectName() == "closeButton"]
+        if getattr(self, "_clear_btn", None) is not None:
+            buttons.append(self._clear_btn)
+        return [(b, 14 if b.objectName() == "closeButton" else 10) for b in buttons]
+
     def show_and_focus(self):
         self.refresh()
         self._reposition_to_active_screen()
         self._pending_activation = True
+        if not self.isVisible():
+            self._optical.capture()   # before show(): Nexus itself must not be in the pixels
         self._motion.show(self)
         self.raise_()
         self.activateWindow()
@@ -520,6 +531,9 @@ class WindowsStackWindow(StackWindow):
             painter.fillRect(event.rect(), QColor(0, 0, 0, 0))
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
             self._surface.paint_native_backdrop(painter)
+            optical = getattr(self, "_optical", None)
+            if optical is not None:
+                optical.paint_controls(painter)
             painter.end()
         else:
             painter = QPainter(self)
@@ -587,6 +601,9 @@ class WindowsStackWindow(StackWindow):
         return self._motion.is_dismissing()
 
     def hideEvent(self, event):
+        optical = getattr(self, "_optical", None)
+        if optical is not None:
+            optical.release()
         if self._paste_hide:
             # The paste service hides the overlay before sending Ctrl+V. Keep
             # the transaction license, but refuse every new insertion now.

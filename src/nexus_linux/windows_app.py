@@ -8,7 +8,7 @@ from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 from . import paths, styles, type_detection
-from . import windows_design, windows_sandbox, windows_system_theme
+from . import windows_design, windows_optical, windows_sandbox, windows_system_theme
 from .windows_icons import app_icon, set_app_user_model_id, tray_icon
 from .windows_motion import fade_in
 from .windows_backdrop import BackdropController, NativeBackend
@@ -208,6 +208,16 @@ class SettingsBackend:
     def capture_paused(self):
         return bool(self.settings.get("paused"))
 
+    def glass_optical(self):
+        return bool(self.settings.get("glass_optical", True))
+
+    def set_glass_optical(self, enabled):
+        enabled = bool(enabled)
+        if enabled != self.glass_optical():
+            self.settings["glass_optical"] = enabled
+            self._save()
+        windows_optical.set_enabled(enabled)
+
     def on_capture_changed(self, callback):
         """Tray and Settings both show the pause state; either can change it."""
         self._capture_listeners.append(callback)
@@ -355,6 +365,7 @@ def _run_windows(lifetime):
         paths.DATA_DIR.parent, Path(__file__).resolve().parent)
     app.setQuitOnLastWindowClosed(False); app.setFont(windows_design.font()); app.setStyleSheet(windows_design.qss())
     settings = windows_sandbox.apply_settings(load_settings())
+    windows_optical.set_enabled(settings.get("glass_optical", True))
     shortcut_store = ShortcutStore(settings, windows_sandbox.default_overrides())
     notices = shortcut_store.sanitize()
     if notices:

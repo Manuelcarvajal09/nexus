@@ -338,4 +338,12 @@ def qss() -> str:
     QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
     /* The native drop-down arrow is replaced by a drawn chevron icon: it used to collide with the glyph of the options button. */
     QPushButton::menu-indicator, QToolButton::menu-indicator {{ image: none; width: 0; height: 0; }}
-    """
+    """ + (f"""
+    /* Optical glass (windows_optical) paints the control's lens, veil and rim behind it: the widget itself
+       only keeps a light hover wash and the accent focus border. */
+    QLineEdit[opticalGlass="true"], QPushButton[opticalGlass="true"] {{ background: transparent; border-color: transparent; }}
+    QLineEdit[opticalGlass="true"]:hover, QPushButton[opticalGlass="true"]:hover {{
+        background: {"rgba(255, 255, 255, 0.10)" if g.dark else "rgba(255, 255, 255, 0.32)"}; border-color: transparent; }}
+    QLineEdit[opticalGlass="true"]:focus, QPushButton[opticalGlass="true"]:focus {{ background: transparent; border: 1px solid {p.accent}; }}
+    QPushButton[opticalGlass="true"]:checked {{ background: {p.accent_fill}; border-color: {p.border_hover}; }}
+    """ if g else "")

@@ -20,6 +20,7 @@ from .timeline_window import TimelineWindow
 from . import styles, windows_design
 from .windows_card_delegate import WindowsClipCardDelegate
 from .windows_material import upgrade_surface
+from .windows_optical import OpticalGlass
 from .windows_design import MOTION_FAST_MS, MOTION_OPEN_CONTENT_MS
 from .windows_motion import SearchFocusHighlight, WindowsMotion, fade_in
 from .windows_backdrop import configure_native_host, handle_native_host_event
@@ -416,6 +417,8 @@ class WindowsTimelineWindow(TimelineWindow):
         self._motion = WindowsMotion(self)
         old_delegate = self._delegate
         self._delegate = WindowsClipCardDelegate(self._list)
+        self._optical = OpticalGlass(self, self._optical_controls)
+        self._delegate.set_optical(self._optical, self)
         self._delegate.set_preview_data(self._preview_data)
         self._list.setItemDelegate(self._delegate)
         old_delegate.deleteLater()
@@ -487,11 +490,24 @@ class WindowsTimelineWindow(TimelineWindow):
             painter.fillRect(event.rect(), QColor(0, 0, 0, 0))
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
             self._surface.paint_native_backdrop(painter)
+            optical = getattr(self, "_optical", None)
+            if optical is not None:
+                optical.paint_controls(painter)   # lens glass behind the (transparent) controls
             painter.end()
         else:
             painter = QPainter(self)
             painter.fillRect(event.rect(), QColor(windows_design.palette().panel))
             painter.end()
+
+    def _optical_controls(self):
+        return [(self._search, 12), (self._style_btn, 10), (self._close_btn, 14), (self._chip_scroll, 14)]
+
+    def hideEvent(self, event):
+        # The captured backdrop is only valid for this opening and is never kept.
+        optical = getattr(self, "_optical", None)
+        if optical is not None:
+            optical.release()
+        super().hideEvent(event)
 
     def apply_visual_theme(self):
         p = windows_design.palette()
@@ -1052,6 +1068,8 @@ class WindowsTimelineWindow(TimelineWindow):
             return
         self._pending_focus_claim = True
         was_visible = self.isVisible()
+        if not was_visible:
+            self._optical.capture()   # before show(): Nexus itself must not be in the pixels
         self._motion.show(self)
         if not was_visible:
             # The HWND itself must not fade (that would break the DWM Acrylic),
