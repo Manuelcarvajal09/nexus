@@ -4,6 +4,7 @@ No library window or persisted geometry is needed. Shared Timeline/storage
 behavior is retained; the embedded editor and layout are Windows-only.
 """
 
+import os
 from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
@@ -24,7 +25,8 @@ from .windows_optical import OpticalGlass
 from .windows_design import MOTION_FAST_MS, MOTION_OPEN_CONTENT_MS
 from .windows_motion import SearchFocusHighlight, WindowsMotion, fade_in
 from .windows_backdrop import configure_native_host, handle_native_host_event
-from .windows_platform import activate_foreground_window
+from .windows_platform import (activate_foreground_window, capture_focus_target, foreground_window,
+                               restore_focus_target, window_process_id)
 
 
 class _InlineEditor(QWidget):
@@ -192,7 +194,7 @@ class _InlineSidebar(PinboardSidebar):
         for row in range(self._list.count()):
             item = self._list.item(row)
             amount = counts.get(item.data(Qt.ItemDataRole.UserRole), 0)
-            item.setText(f"{item.text().rstrip()}   ·  {amount}")
+            item.setText(f"{item.text().rstrip()} · {amount}")
             item.setToolTip(f"{amount} elemento{'s' if amount != 1 else ''}")
         self._list.blockSignals(False)
 
@@ -945,7 +947,7 @@ class WindowsTimelineWindow(TimelineWindow):
         super()._select_pinboard(pinboard_id)
         if hasattr(self, "_pages") and self._pages.currentIndex() == 1:
             self._open_editor(self._current_pinboard_id, creating=False)
-        if previous != pinboard_id and hasattr(self, "_motion"):
+        if previous != pinboard_id and hasattr(self, "_motion") and not getattr(self, "_keyboard_nav", False):
             self._motion.transition(self._pages.currentWidget())
 
     def _quick_paste(self, n):
@@ -1022,7 +1024,12 @@ class WindowsTimelineWindow(TimelineWindow):
 
     def _cycle_pinboard(self, step):
         if self._pages.currentIndex() == 0:
-            super()._cycle_pinboard(step)
+            # Repeated keyboard navigation answers instantly: no page fade.
+            self._keyboard_nav = True
+            try:
+                super()._cycle_pinboard(step)
+            finally:
+                self._keyboard_nav = False
 
     # -- titles ------------------------------------------------------------
 
@@ -1191,6 +1198,9 @@ class WindowsTimelineWindow(TimelineWindow):
         was_visible = self.isVisible()
         if not was_visible:
             self._optical.capture()   # before show(): Nexus itself must not be in the pixels
+            # Where the user was, so a plain dismissal (Esc, hotkey, close) goes back there
+            # instead of wherever Windows' z-order happens to point.
+            self._return_target = capture_focus_target() if QApplication.platformName() == "windows" else None
         self._motion.show(self)
         if not was_visible:
             # The HWND itself must not fade (that would break the DWM Acrylic),
@@ -1210,7 +1220,21 @@ class WindowsTimelineWindow(TimelineWindow):
 
     def fade_hide(self):
         self._commit_open_title_edit()
+        target, self._return_target = getattr(self, "_return_target", None), None
+        was_foreground = (target is not None and QApplication.platformName() == "windows"
+                          and foreground_window() == int(self.internalWinId()))
         self._motion.hide(self)
+        if was_foreground:
+            QTimer.singleShot(0, lambda: self._return_focus(target))
+
+    def _return_focus(self, target):
+        """Give focus back to the app Nexus was opened over, unless another Nexus window
+        (e.g. the Stack that is opening right now) legitimately took it."""
+        current = foreground_window()
+        own_pid = os.getpid()
+        if current and window_process_id(current) == own_pid and current != int(self.internalWinId()):
+            return
+        restore_focus_target(target, own_pid)
 
     def is_dismissing(self):
         return self._motion.is_dismissing()

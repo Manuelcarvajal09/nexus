@@ -39,7 +39,7 @@ def main():
     ap.add_argument("--scale", default="1")
     ap.add_argument("--screen", default="1920x1080", help="offscreen logical work area")
     ap.add_argument("--real", action="store_true")
-    ap.add_argument("--surfaces", default="history,pinboard,manager,empty,stack,settings,stress,menus")
+    ap.add_argument("--surfaces", default="history,pinboard,manager,empty,stack,settings,stress,notice")
     args = ap.parse_args()
     os.environ["QT_SCALE_FACTOR"] = args.scale
     out = Path(args.output); out.mkdir(parents=True, exist_ok=True)
@@ -81,7 +81,7 @@ def main():
         def snap(widget, name, wait=450):
             app.processEvents(); QTest.qWait(wait)
             if args.real:
-                g = widget.frameGeometry(); pad = 12
+                g = widget.frameGeometry(); pad = 0
                 r = QRect(g.x() - pad, g.y() - pad, g.width() + 2 * pad, g.height() + 2 * pad)
                 screen = widget.screen() or QGuiApplication.primaryScreen()
                 screen.grabWindow(0, r.x(), r.y(), r.width(), r.height()).save(str(out / f"{name}.png"))
@@ -106,6 +106,10 @@ def main():
                 if n % 7 == 0: storage.set_title(it.id, long_title)
             panel.refresh(); panel._search.setText("sint"); panel.refresh(); snap(panel, "stress-search")
             panel._search.setText(""); panel.refresh()
+        if "notice" in wanted:
+            panel.refresh()
+            panel._delete_item(panel._storage.get(panel._model.item_at(0).id)); snap(panel, "notice-undo")
+            panel.undo_delete()
         if "menus" in wanted:
             panel.refresh()
             def grab_popup(menu, name):
@@ -127,12 +131,10 @@ def main():
             class CapMenu(QMenu):
                 def exec(self, pos=None, *a): return fake_exec(self, pos)
             tw.QMenu = CapMenu
-            index = panel._model.index(0, 0); print("DBG rows", panel._model.rowCount(), panel._list.visualRect(index).getRect(), panel._list.isVisible(), flush=True)
-            c = panel._list.visualRect(index).center(); print("DBG idx", panel._list.indexAt(c).isValid(), c, panel._model.item_at(0), flush=True); panel._show_item_menu(c); print("DBG after", counter, flush=True)
+            index = panel._model.index(0, 0)
+            c = panel._list.visualRect(index).center(); panel._show_item_menu(c)
             options = panel._management_btn.menu()
             options.popup(panel._management_btn.mapToGlobal(panel._management_btn.rect().bottomLeft())); grab_popup(options, "menu-options"); options.close()
-            panel._delete_item(panel._storage.get(panel._model.item_at(0).id)); snap(panel, "notice-undo")
-            panel.undo_delete()
         panel.close()
         if "stack" in wanted:
             stack = WindowsClipStack(storage, Paste()); sw = WindowsStackWindow(stack); sw.start_collecting()
