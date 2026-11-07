@@ -290,3 +290,15 @@ def test_search_placeholder_follows_the_open_pinboard(env):
     assert "Mercado Libre" in window._search.placeholderText()
     window._select_pinboard(None)
     assert window._search.placeholderText() == "Buscar en tu historial…"
+
+
+def test_settings_hides_the_navigation_row_and_keeps_the_window_size(env, qapp):
+    window, *_ = env
+    window.show_and_focus(); window.show_pinboard_manager(); qapp.processEvents()
+    admin = window.geometry()
+    assert not window._chip_scroll.isHidden()
+    window.show_settings(); qapp.processEvents()
+    assert window._chip_scroll.isHidden()
+    assert window.geometry().height() == admin.height()
+    window.close_pinboard_manager(); qapp.processEvents()
+    assert not window._chip_scroll.isHidden()

@@ -352,8 +352,7 @@ class TimelineWindow(QWidget):
             self._show_item_details(item)
         elif chosen == delete_action:
             if self._confirm_delete(item):
-                self._storage.delete(item.id)
-                self.refresh()
+                self._delete_item(item)
 
     # Hooks for platform layers; the defaults reproduce the original behavior.
 
@@ -363,6 +362,10 @@ class TimelineWindow(QWidget):
 
     def _show_item_details(self, item) -> None:
         QMessageBox.information(self, "Detalles", f"Tipo: {item.kind}\nOrigen: {item.source_app or 'desconocido'}\nID local: {item.id}")
+
+    def _delete_item(self, item) -> None:
+        self._storage.delete(item.id)
+        self.refresh()
 
     def _confirm_delete(self, item) -> bool:
         return True

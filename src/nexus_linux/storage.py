@@ -351,6 +351,36 @@ class StorageService:
         self._conn.execute("DELETE FROM clip_items WHERE id = ?", (item_id,))
         self._conn.commit()
 
+    def restore_item(self, item: "ClipItem") -> Optional["ClipItem"]:
+        """Undo of delete(): puts the same clip back with its title, timestamps and
+        the pinboards that still exist. If the same content was copied again in the
+        meantime that newer row is kept and returned instead (hash is UNIQUE)."""
+        row = self._conn.execute("SELECT id FROM clip_items WHERE content_hash = ?", (item.content_hash,)).fetchone()
+        if row:
+            return self.get(row[0])
+        keep_id = self._conn.execute("SELECT 1 FROM clip_items WHERE id = ?", (item.id,)).fetchone() is None
+        search_text = normalize_for_search(" ".join(part for part in (item.text_content, item.file_path) if part))
+        title = normalize_title(item.title)
+        columns = "content_hash, kind, text_content, image_data, file_path, source_app, created_at, updated_at, pinned, search_text, title, title_search"
+        values = [item.content_hash, item.kind, item.text_content, item.image_data, item.file_path, item.source_app,
+                  item.created_at, item.updated_at, 0, search_text, title, normalize_for_search(title) if title else None]
+        if keep_id:
+            columns, values = "id, " + columns, [item.id] + values
+        cur = self._conn.execute(f"INSERT INTO clip_items ({columns}) VALUES ({', '.join('?' * len(values))})", values)
+        new_id = item.id if keep_id else cur.lastrowid
+        for board_id in item.pinboard_ids:
+            if self._conn.execute("SELECT 1 FROM pinboards WHERE id = ?", (board_id,)).fetchone():
+                self._conn.execute("INSERT OR IGNORE INTO pinboard_items (pinboard_id, item_id) VALUES (?, ?)", (board_id, new_id))
+        self._conn.commit()
+        return self.get(new_id)
+
+    def pinboard_counts(self) -> dict:
+        """{pinboard_id: number of clips} plus None -> total history size."""
+        counts = {row[0]: row[1] for row in self._conn.execute(
+            "SELECT pinboard_id, COUNT(*) FROM pinboard_items GROUP BY pinboard_id")}
+        counts[None] = self._conn.execute("SELECT COUNT(*) FROM clip_items").fetchone()[0]
+        return counts
+
     def purge_older_than(self, days: int) -> int:
         cutoff = time.time() - days * 86400
         cur = self._conn.execute(

@@ -187,6 +187,13 @@ class _InlineSidebar(PinboardSidebar):
         for row in range(self._list.count() - 1, -1, -1):
             if self._list.item(row).data(Qt.ItemDataRole.UserRole) == HISTORY_ROW_ID:
                 self._list.takeItem(row)
+        # How much each board holds, so the list says where things are before opening one.
+        counts = self._storage.pinboard_counts()
+        for row in range(self._list.count()):
+            item = self._list.item(row)
+            amount = counts.get(item.data(Qt.ItemDataRole.UserRole), 0)
+            item.setText(f"{item.text().rstrip()}   ·  {amount}")
+            item.setToolTip(f"{amount} elemento{'s' if amount != 1 else ''}")
         self._list.blockSignals(False)
 
     def _on_create(self):
@@ -460,10 +467,36 @@ class WindowsTimelineWindow(TimelineWindow):
         self._feedback_label.setObjectName("successFeedback")
         self._feedback_label.hide()
         header.insertWidget(header.indexOf(self._count_badge), self._feedback_label)
+        self._undo_btn = QPushButton("Deshacer")
+        self._undo_btn.setObjectName("flat")
+        self._undo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._undo_btn.setToolTip("Restaurar el elemento eliminado · Ctrl+Z")
+        self._undo_btn.setAccessibleName("Deshacer eliminar")
+        self._undo_btn.hide()
+        self._undo_btn.clicked.connect(self.undo_delete)
+        header.insertWidget(header.indexOf(self._count_badge), self._undo_btn)
+        self._undo_item = None
+        self._undo_shortcut = QShortcut(QKeySequence("Ctrl+Z"), self)
+        self._undo_shortcut.activated.connect(self.undo_delete)
         self._feedback_timer = QTimer(self)
         self._feedback_timer.setSingleShot(True)
         self._feedback_timer.setInterval(1400)
-        self._feedback_timer.timeout.connect(self._feedback_label.hide)
+        self._feedback_timer.timeout.connect(self._clear_notice)
+        # Empty states carry an icon and, when there is a sensible next step, one action.
+        empty_layout = QVBoxLayout(self._empty_label)
+        empty_layout.setContentsMargins(0, 18, 0, 14)
+        self._empty_icon = QLabel()
+        self._empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_icon.setStyleSheet("background: transparent; border: none;")
+        empty_layout.addWidget(self._empty_icon, 0, Qt.AlignmentFlag.AlignHCenter)
+        empty_layout.addStretch(1)
+        self._empty_action = QPushButton()
+        self._empty_action.setObjectName("flat")
+        self._empty_action.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._empty_action.hide()
+        empty_layout.addWidget(self._empty_action, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._empty_action_slot = None
+        self._empty_action.clicked.connect(lambda: self._empty_action_slot() if self._empty_action_slot else None)
         self._pages.setAccessibleName("Historial")
         self.apply_visual_theme()
         self._sync_chip_height()
@@ -669,6 +702,47 @@ class WindowsTimelineWindow(TimelineWindow):
         height += self._chip_scroll.horizontalScrollBar().sizeHint().height()
         self._chip_scroll.setFixedHeight(height)
 
+    def _set_empty_state(self, icon_name, action_text, slot):
+        if not hasattr(self, "_empty_icon"):
+            return  # refresh() runs once inside the base constructor, before these exist
+        self._empty_icon.setPixmap(windows_design.icon(icon_name, windows_design.palette().faint, 28).pixmap(28, 28))
+        self._empty_action_slot = slot
+        self._empty_action.setVisible(action_text is not None)
+        if action_text:
+            self._empty_action.setText(action_text)
+
+    def _clear_search(self):
+        self._search.clear()
+        self._search.setFocus()
+
+    # -- brief header notices (saved / deleted + undo) -----------------------
+
+    def _show_notice(self, text, undo=False):
+        self._feedback_label.setText(text)
+        self._feedback_label.show()
+        fade_in(self._feedback_label, MOTION_FAST_MS)
+        self._undo_btn.setVisible(undo)
+        self._feedback_timer.start(6000 if undo else 1400)
+
+    def _clear_notice(self):
+        self._feedback_label.hide()
+        self._undo_btn.hide()
+        self._undo_item = None
+
+    def _delete_item(self, item):
+        super()._delete_item(item)
+        self._undo_item = item
+        self._show_notice("Eliminado", undo=True)
+
+    def undo_delete(self):
+        item, self._undo_item = self._undo_item, None
+        if item is None or self._pages.currentIndex() != 0:
+            return
+        restored = self._storage.restore_item(item)
+        self._feedback_timer.stop()
+        self.refresh()
+        self._show_notice("Restaurado" if restored else "No se pudo restaurar")
+
     def refresh(self):
         if (self._current_pinboard_id is not None
                 and self._storage.get_pinboard(self._current_pinboard_id) is None):
@@ -681,10 +755,13 @@ class WindowsTimelineWindow(TimelineWindow):
             query = self._search.text().strip()
             if query:
                 self._empty_label.setText(f"Sin resultados para «{query}».\nPrueba con otra palabra.")
+                self._set_empty_state("search", "Borrar búsqueda", self._clear_search)
             elif self._current_pinboard_id is not None:
-                self._empty_label.setText("Este pinboard está vacío.\nGuarda elementos desde el menú del historial.")
+                self._empty_label.setText("Este pinboard está vacío.\nClic derecho en una tarjeta › Pinboards para guardarla aquí.")
+                self._set_empty_state("board", "Ir al historial", lambda: self._navigate_board(None))
             else:
                 self._empty_label.setText("Tu historial empieza aquí.\nCopia texto, imágenes o archivos para guardarlos.")
+                self._set_empty_state("history", None, None)
         # Preview payloads include images. The persistent cache can retrieve
         # them again, so retain only the bounded current model in RAM.
         current_ids = {item.id for item in self._model._items}
@@ -713,6 +790,7 @@ class WindowsTimelineWindow(TimelineWindow):
                 self._open_editor(self._current_pinboard_id, creating=False)
 
     def show_pinboard_manager(self, creating=False):
+        self._chip_scroll.show()
         self._pages.setCurrentWidget(self._admin_page)
         self._update_chip_state()
         self._search.setEnabled(False)
@@ -733,6 +811,7 @@ class WindowsTimelineWindow(TimelineWindow):
 
     def close_pinboard_manager(self):
         was_admin = self._pages.currentIndex() != 0
+        self._chip_scroll.show()
         self._pages.setCurrentIndex(0)
         self._search.setEnabled(True)
         self._search.show()
@@ -778,10 +857,24 @@ class WindowsTimelineWindow(TimelineWindow):
         layout.addWidget(self._right_heading)
         if board is None and not creating:
             self._editor = None
-            empty = QLabel("Un lugar para lo importante.\nSelecciona un pinboard o crea uno con + Nuevo.")
+            boards = self._storage.list_pinboards()
+            if boards:
+                saved = self._storage._conn.execute("SELECT COUNT(DISTINCT item_id) FROM pinboard_items").fetchone()[0]
+                text = (f"{len(boards)} pinboard{'s' if len(boards) != 1 else ''} · {saved} elemento{'s' if saved != 1 else ''} guardado{'s' if saved != 1 else ''}.\n"
+                        "Elige uno a la izquierda para cambiar su nombre, color o emoji.")
+            else:
+                text = ("Aún no tienes pinboards. Un pinboard guarda lo que necesitas a mano: plantillas, direcciones, enlaces frecuentes.\n"
+                        "Un elemento puede estar en varios pinboards.")
+            empty = QLabel(text)
             empty.setObjectName("pinboardDetailEmpty")
             empty.setWordWrap(True)
             layout.addWidget(empty)
+            if not boards:
+                start = QPushButton("+ Nuevo pinboard")
+                start.setObjectName("primary")
+                start.setCursor(Qt.CursorShape.PointingHandCursor)
+                start.clicked.connect(lambda: self._open_editor(None))
+                layout.addWidget(start, 0, Qt.AlignmentFlag.AlignLeft)
             layout.addStretch()
             self._editor_scroll.setWidget(host)
             return
@@ -814,9 +907,7 @@ class WindowsTimelineWindow(TimelineWindow):
             self._open_editor(None)
             return
         self._select_pinboard(self._editing_id)
-        self._feedback_label.show()
-        fade_in(self._feedback_label, MOTION_FAST_MS)
-        self._feedback_timer.start()
+        self._show_notice("Guardado")
 
     def _delete_pinboard(self, board_id):
         board = self._storage.get_pinboard(board_id) if board_id is not None else None
@@ -891,6 +982,7 @@ class WindowsTimelineWindow(TimelineWindow):
             return
         self._commit_open_title_edit()
         self._pages.setCurrentWidget(self._settings_page)
+        self._chip_scroll.hide()  # Configuración is a page of its own: Volver / Esc leave it.
         self._search.setEnabled(False)
         self._search.hide()
         self._pages.setAccessibleName("Configuración")
@@ -1044,6 +1136,10 @@ class WindowsTimelineWindow(TimelineWindow):
         wanted = card_height + 16 + chrome
         if self._pages.currentIndex() != 0:
             wanted = chrome + 440
+            if self._chip_scroll.isHidden():
+                # Configuración drops the navigation row: keep the window the same
+                # size as Pinboards and give that height to the page.
+                wanted += self._chip_scroll.height() + self._chrome.layout().spacing()
         height = min(wanted, max(1, avail.height() - 2 * windows_design.WORKAREA_BOTTOM))
         if height - chrome < 164:
             card_height = 148
