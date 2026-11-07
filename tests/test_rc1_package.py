@@ -277,3 +277,20 @@ def test_running_the_shipped_tools_never_writes_into_the_package(tmp_path):
     assert done.returncode == 0, done.stderr
     assert not list(dist.rglob("__pycache__")) and not list(dist.rglob("*.pyc"))
     assert verify.verify_package(dist)
+
+
+def test_an_interrupted_install_can_simply_be_retried(tmp_path):
+    root, dist = tmp_path / "root", make_package(tmp_path)
+    leftover = root / "versions" / "0.2.0rc1" / "venv" / "Scripts"
+    leftover.mkdir(parents=True)
+    (leftover / "half-written.exe").write_text("partial")        # no INSTALLED.json: the install never finished
+    state = manage.install(dist, root, run=FakeRunner("0.2.0rc1"), running=idle, log=lambda *a: None)
+    assert state["current"] == "0.2.0rc1"
+    assert not (root / "versions" / "0.2.0rc1" / "venv" / "Scripts" / "half-written.exe").exists()
+
+
+def test_a_completed_install_is_never_overwritten(tmp_path):
+    root, dist = tmp_path / "root", make_package(tmp_path)
+    manage.install(dist, root, run=FakeRunner("0.2.0rc1"), running=idle, log=lambda *a: None)
+    with pytest.raises(manage.ManageError, match="already installed"):
+        manage.install(dist, root, run=FakeRunner("0.2.0rc1"), running=idle, log=lambda *a: None)

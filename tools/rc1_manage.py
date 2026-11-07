@@ -112,7 +112,9 @@ def install(package: Path, root: Path, data_dir: Path | None = None, python: str
     state = read_state(root)
     target = root / "versions" / version
     if target.exists():
-        raise ManageError(f"version {version} is already installed in {root}; uninstall it or choose another root")
+        if (target / "INSTALLED.json").exists():
+            raise ManageError(f"version {version} is already installed in {root}; uninstall it or choose another root")
+        shutil.rmtree(target)   # leftover of an interrupted install (INSTALLED.json is written last): safe to redo
     if state["current"] and running(root):
         raise ManageError("Nexus is running from this install root: close it from its tray menu first")
 
