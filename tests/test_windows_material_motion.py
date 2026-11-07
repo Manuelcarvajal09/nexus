@@ -1,5 +1,6 @@
 """Offscreen material and deterministic motion tests; no native/clipboard access."""
 
+import time
 from types import SimpleNamespace
 import sys
 
@@ -202,7 +203,9 @@ def test_natural_completion_leaves_no_animation_or_effect(window, qapp):
     motion = WindowsMotion(window)
     motion.show(window)
     motion.transition(window)
-    QTest.qWait(220)
+    deadline = time.monotonic() + 2  # animation length is timer-driven: poll, do not guess
+    while window.windowOpacity() != 1 and time.monotonic() < deadline:
+        QTest.qWait(20)
     assert window.isVisible() and window.windowOpacity() == 1
     assert window.graphicsEffect() is None
     assert motion._window_animation is None

@@ -380,6 +380,12 @@ class WindowsStackWindow(StackWindow):
         self._height_timer = QTimer(self)
         self._height_timer.setSingleShot(True)
         self._height_timer.timeout.connect(self._adapt_height)
+        # "Vaciar Stack" discards the whole pending queue: ask for a second
+        # click (inline, no modal that would steal focus) before doing it.
+        self._clear_armed = False
+        self._clear_timer = QTimer(self)
+        self._clear_timer.setSingleShot(True)
+        self._clear_timer.timeout.connect(self._disarm_clear)
         self._paste_next_btn.setText("Pegar siguiente")
         self._optical = OpticalGlass(self, self._optical_controls)
         self._paste_next_btn.setAccessibleName("Pegar el siguiente elemento del Stack")
@@ -593,6 +599,28 @@ class WindowsStackWindow(StackWindow):
     def schedule_real_paste(self, sequence=None):
         return self._stack.request_paste(sequence, on_consumed=self.refresh)
 
+    CLEAR_CONFIRM_MS = 3000
+
+    def _on_clear(self):
+        if self._clear_armed or len(self._stack.items()) < 2:
+            self._disarm_clear()
+            super()._on_clear()
+            return
+        self._clear_armed = True
+        button = getattr(self, "_clear_btn", None)
+        if button is not None:
+            button.setText("¿Vaciar? Clic otra vez")
+            button.setAccessibleName("Confirmar: vaciar todos los elementos del Stack")
+        self._clear_timer.start(self.CLEAR_CONFIRM_MS)
+
+    def _disarm_clear(self):
+        self._clear_armed = False
+        self._clear_timer.stop()
+        button = getattr(self, "_clear_btn", None)
+        if button is not None:
+            button.setText("Vaciar Stack")
+            button.setAccessibleName("Vaciar Stack")
+
     def fade_hide(self):
         self.stop_collecting()
         self._motion.hide(self)
@@ -601,6 +629,7 @@ class WindowsStackWindow(StackWindow):
         return self._motion.is_dismissing()
 
     def hideEvent(self, event):
+        self._disarm_clear()
         optical = getattr(self, "_optical", None)
         if optical is not None:
             optical.release()

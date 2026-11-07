@@ -50,7 +50,7 @@ class ClipRowWidget(QWidget):
         # A user-assigned title is only a label; the preview of the real
         # content moves to the meta line so the row stays recognizable.
         custom_title = getattr(item, "title", None)
-        title = QLabel(custom_title or item.preview(64))
+        title = QLabel(custom_title or (KIND_LABELS["image"] if item.kind == "image" else item.preview(64)))
         title.setObjectName("rowTitle")
         # Clipboard contents can be arbitrarily long (shell commands, URLs,
         # JSON). They should clip inside the card, never dictate a wider list.

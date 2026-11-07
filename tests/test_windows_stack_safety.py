@@ -641,3 +641,51 @@ def test_paste_hide_does_not_drop_pending_items(window, rig):
     window.start_collecting()
     third = rig.copy("C")
     assert ids(rig) == [second.id, third.id]
+
+
+def _window_with(rig, storage, qapp, count):
+    items = [storage.capture(kind="text", text_content=f"synthetic {n}") for n in range(count)]
+    storage.save_stack_state([i.id for i in items], False)
+    rig.stack.load_persisted()
+    return WindowsStackWindow(rig.stack)
+
+
+def _close(window, qapp):
+    window.close()
+    window.deleteLater()
+    qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+def test_clear_stack_needs_a_second_click_for_several_items(qapp, storage, rig):
+    window = _window_with(rig, storage, qapp, 3)
+    try:
+        button = window._clear_btn
+        button.click()
+        assert len(rig.stack.items()) == 3 and "otra vez" in button.text()  # armed, nothing lost
+        window._disarm_clear()  # what the 3 s timer does
+        assert button.text() == "Vaciar Stack"
+        button.click()
+        assert len(rig.stack.items()) == 3
+        button.click()
+        assert rig.stack.items() == [] and button.text() == "Vaciar Stack"
+    finally:
+        _close(window, qapp)
+
+
+def test_clear_stack_disarms_when_hidden_and_skips_confirmation_for_one_item(qapp, storage, rig):
+    window = _window_with(rig, storage, qapp, 2)
+    try:
+        window.show()
+        window._clear_btn.click()
+        assert window._clear_armed
+        window.hide()
+        assert not window._clear_armed and window._clear_btn.text() == "Vaciar Stack"
+        assert len(rig.stack.items()) == 2
+    finally:
+        _close(window, qapp)
+    single = _window_with(rig, storage, qapp, 1)
+    try:
+        single._clear_btn.click()
+        assert rig.stack.items() == []  # a single item is trivial to recopy
+    finally:
+        _close(single, qapp)
