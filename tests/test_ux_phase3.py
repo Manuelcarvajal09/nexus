@@ -116,3 +116,46 @@ def test_empty_states_have_an_icon_and_a_next_step(window):
     assert win._current_pinboard_id is None
     assert not win._empty_icon.pixmap().isNull()
 
+
+
+def test_supr_deletes_the_selected_card_and_keeps_a_neighbour_selected(window):
+    win, storage = window
+    items = [storage.capture(kind="text", text_content=f"synthetic card {n}") for n in range(3)]
+    win.show(); win.refresh()
+    win._list.setCurrentIndex(win._model.index(1, 0))
+    victim = win._model.item_at(1)
+    win.delete_current()
+    assert storage.get(victim.id) is None and win._model.rowCount() == 2
+    assert win._list.currentIndex().isValid()
+    win.undo_delete()
+    assert storage.get(victim.id) is not None
+
+
+def test_supr_in_the_search_box_edits_text_and_never_deletes(window, monkeypatch):
+    win, storage = window
+    from PySide6.QtWidgets import QApplication
+    monkeypatch.setattr(QApplication, "focusWidget", staticmethod(lambda: win._search))  # offscreen has no real focus
+    item = storage.capture(kind="text", text_content="synthetic keep me")
+    win.show(); win.refresh(); win._search.setFocus()
+    win._search.setText("abc")
+    win.delete_current()
+    assert storage.get(item.id) is not None
+
+
+def test_item_menu_names_the_keys_of_frequent_actions(window):
+    win, storage = window
+    from PySide6.QtWidgets import QMenu
+    seen = {}
+    import nexus_linux.timeline_window as tw
+    class Probe(QMenu):
+        def exec(self, *a):
+            seen["texts"] = [x.text() for x in self.actions()]
+            return None
+    tw.QMenu = Probe
+    try:
+        storage.capture(kind="text", text_content="synthetic menu")
+        win.show(); win.refresh()
+        win._show_item_menu(win._list.visualRect(win._model.index(0, 0)).center())
+    finally:
+        tw.QMenu = QMenu
+    assert "Pegar\tEnter" in seen["texts"] and "Eliminar\tSupr" in seen["texts"]

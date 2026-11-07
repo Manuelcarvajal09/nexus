@@ -476,6 +476,8 @@ class WindowsTimelineWindow(TimelineWindow):
         self._undo_btn.clicked.connect(self.undo_delete)
         header.insertWidget(header.indexOf(self._count_badge), self._undo_btn)
         self._undo_item = None
+        self._delete_shortcut = QShortcut(QKeySequence("Delete"), self)
+        self._delete_shortcut.activated.connect(self.delete_current)
         self._undo_shortcut = QShortcut(QKeySequence("Ctrl+Z"), self)
         self._undo_shortcut.activated.connect(self.undo_delete)
         self._feedback_timer = QTimer(self)
@@ -728,6 +730,20 @@ class WindowsTimelineWindow(TimelineWindow):
         self._feedback_label.hide()
         self._undo_btn.hide()
         self._undo_item = None
+
+    def delete_current(self):
+        """Supr on the selected card: quick, because Deshacer is one key away."""
+        if isinstance(QApplication.focusWidget(), QLineEdit) or self._pages.currentIndex() != 0:
+            return
+        index = self._list.currentIndex()
+        item = self._model.item_at(index.row()) if index.isValid() else None
+        if item is None or not self._confirm_delete(item):
+            return
+        row = index.row()
+        self._delete_item(item)
+        count = self._model.rowCount()
+        if count:
+            self._list.setCurrentIndex(self._model.index(min(row, count - 1), 0))
 
     def _delete_item(self, item):
         super()._delete_item(item)
@@ -1010,7 +1026,13 @@ class WindowsTimelineWindow(TimelineWindow):
 
     # -- titles ------------------------------------------------------------
 
+    DELETE_MENU_HINT = "\tSupr"
+
     def _extend_item_menu(self, menu, item):
+        # Name the keys of the most frequent actions where the user is looking.
+        paste, plain = menu.actions()[:2]
+        paste.setText("Pegar\tEnter")
+        plain.setText("Pegar como texto plano\tMayús+Enter")
         action = menu.addAction("Renombrar…\tF2")
         return {action: lambda item_id=item.id: self.begin_title_edit(item_id)}
 

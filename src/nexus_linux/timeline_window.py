@@ -329,7 +329,7 @@ class TimelineWindow(QWidget):
         manage_action = pin_menu.addAction("Administrar pinboards…")
         details_action = menu.addAction("Detalles")
         menu.addSeparator()
-        delete_action = menu.addAction("Eliminar")
+        delete_action = menu.addAction("Eliminar" + self.DELETE_MENU_HINT)
         chosen = menu.exec(self._list.viewport().mapToGlobal(pos))
         if chosen == paste_action:
             self._select_and_paste(item)
@@ -362,6 +362,8 @@ class TimelineWindow(QWidget):
 
     def _show_item_details(self, item) -> None:
         QMessageBox.information(self, "Detalles", f"Tipo: {item.kind}\nOrigen: {item.source_app or 'desconocido'}\nID local: {item.id}")
+
+    DELETE_MENU_HINT = ""  # platform layers may append "\tKey"
 
     def _delete_item(self, item) -> None:
         self._storage.delete(item.id)

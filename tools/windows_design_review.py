@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / "src")); sys.path.insert(0, str(ROOT / "tools"))
 from PySide6.QtCore import QEvent, QRect
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMenu
 from nexus_linux import paths, styles, windows_app as wapp, windows_design
 from nexus_linux.storage import StorageService
 from nexus_linux.windows_settings import load_settings, save_settings
@@ -39,7 +39,7 @@ def main():
     ap.add_argument("--scale", default="1")
     ap.add_argument("--screen", default="1920x1080", help="offscreen logical work area")
     ap.add_argument("--real", action="store_true")
-    ap.add_argument("--surfaces", default="history,pinboard,manager,empty,stack,settings,stress")
+    ap.add_argument("--surfaces", default="history,pinboard,manager,empty,stack,settings,stress,menus")
     args = ap.parse_args()
     os.environ["QT_SCALE_FACTOR"] = args.scale
     out = Path(args.output); out.mkdir(parents=True, exist_ok=True)
@@ -106,6 +106,33 @@ def main():
                 if n % 7 == 0: storage.set_title(it.id, long_title)
             panel.refresh(); panel._search.setText("sint"); panel.refresh(); snap(panel, "stress-search")
             panel._search.setText(""); panel.refresh()
+        if "menus" in wanted:
+            panel.refresh()
+            def grab_popup(menu, name):
+                # Menus are rendered from the widget itself (QSS look); native popups
+                # are not reliably capturable from the screen in this setup.
+                app.processEvents(); QTest.qWait(250)
+                menu.grab().save(str(out / f"{name}.png"))
+                for sub in menu.findChildren(QMenu):
+                    if sub.isVisible(): sub.grab().save(str(out / f"{name}-sub.png"))
+            counter = {"n": 0}
+            def fake_exec(menu, pos=None, *a):
+                counter["n"] += 1
+                menu.popup(pos); grab_popup(menu, f"menu-item")
+                for action in menu.actions():
+                    if action.menu() is not None and action.text() == "Pinboards":
+                        menu.setActiveAction(action); grab_popup(menu, "menu-item-pinboards"); break
+                menu.close(); return None
+            import nexus_linux.timeline_window as tw
+            class CapMenu(QMenu):
+                def exec(self, pos=None, *a): return fake_exec(self, pos)
+            tw.QMenu = CapMenu
+            index = panel._model.index(0, 0); print("DBG rows", panel._model.rowCount(), panel._list.visualRect(index).getRect(), panel._list.isVisible(), flush=True)
+            c = panel._list.visualRect(index).center(); print("DBG idx", panel._list.indexAt(c).isValid(), c, panel._model.item_at(0), flush=True); panel._show_item_menu(c); print("DBG after", counter, flush=True)
+            options = panel._management_btn.menu()
+            options.popup(panel._management_btn.mapToGlobal(panel._management_btn.rect().bottomLeft())); grab_popup(options, "menu-options"); options.close()
+            panel._delete_item(panel._storage.get(panel._model.item_at(0).id)); snap(panel, "notice-undo")
+            panel.undo_delete()
         panel.close()
         if "stack" in wanted:
             stack = WindowsClipStack(storage, Paste()); sw = WindowsStackWindow(stack); sw.start_collecting()
