@@ -5,11 +5,12 @@ behavior is retained; the embedded editor and layout are Windows-only.
 """
 
 import os
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QDialog, QDialogButtonBox, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QMenu, QMessageBox,
-    QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
+    QToolButton, QVBoxLayout, QWidget,
 )
 
 from .pinboard_editor import _swatch_pixmap
@@ -178,6 +179,54 @@ class _InlineEditor(QWidget):
         self.cancelled.emit()
 
 
+COUNT_ROLE = Qt.ItemDataRole.UserRole + 1
+COUNT_GAP = 8       # between the (elided) name and the counter
+COUNT_PAD = 14      # horizontal padding inside the counter pill
+COUNT_MIN_NAME = 24  # the name always keeps at least this much room
+
+
+def board_row_layout(metrics, name, count, text_width):
+    """(elided name, pill width) for one pinboard row.
+
+    The counter owns a reserved column at the right: it is never elided, and only the
+    name gives way, so a long, accented or emoji-laden name cannot hide how much a
+    pinboard holds."""
+    pill = metrics.horizontalAdvance(str(count)) + COUNT_PAD
+    room = max(COUNT_MIN_NAME, text_width - pill - COUNT_GAP)
+    return metrics.elidedText(name, Qt.TextElideMode.ElideRight, room), pill
+
+
+class _BoardRowDelegate(QStyledItemDelegate):
+    """Draws the sidebar row with the stylesheet (selection, hover, icon) and adds the count pill."""
+
+    def paint(self, painter, option, index):
+        count = index.data(COUNT_ROLE)
+        if count is None:
+            return super().paint(painter, option, index)
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        widget = option.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        metrics = QFontMetrics(opt.font)
+        text_rect = style.subElementRect(QStyle.SubElement.SE_ItemViewItemText, opt, widget)
+        opt.text, pill_width = board_row_layout(metrics, opt.text, count, text_rect.width())
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
+        tokens = windows_design.palette()
+        pill = QRectF(opt.rect.right() - pill_width - 8, opt.rect.center().y() - 9, pill_width, 18)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(tokens.panel_raised))
+        painter.drawRoundedRect(pill, 9, 9)
+        font = QFont(opt.font)
+        font.setPixelSize(10)
+        font.setWeight(QFont.Weight.DemiBold)
+        painter.setFont(font)
+        painter.setPen(QColor(tokens.muted))
+        painter.drawText(pill, Qt.AlignmentFlag.AlignCenter, str(count))
+        painter.restore()
+
+
 class _InlineSidebar(PinboardSidebar):
     create_requested = Signal()
     edit_requested = Signal(int)
@@ -191,11 +240,14 @@ class _InlineSidebar(PinboardSidebar):
                 self._list.takeItem(row)
         # How much each board holds, so the list says where things are before opening one.
         counts = self._storage.pinboard_counts()
+        if not isinstance(self._list.itemDelegate(), _BoardRowDelegate):
+            self._list.setItemDelegate(_BoardRowDelegate(self._list))
         for row in range(self._list.count()):
             item = self._list.item(row)
             amount = counts.get(item.data(Qt.ItemDataRole.UserRole), 0)
-            item.setText(f"{item.text().rstrip()} · {amount}")
-            item.setToolTip(f"{amount} elemento{'s' if amount != 1 else ''}")
+            item.setData(COUNT_ROLE, amount)
+            # The full name travels with the tooltip too: the row may have elided it.
+            item.setToolTip(f"{item.text().strip()} — {amount} elemento{'s' if amount != 1 else ''}")
         self._list.blockSignals(False)
 
     def _on_create(self):

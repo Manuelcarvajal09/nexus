@@ -84,15 +84,74 @@ def test_undo_button_and_expiry(window, qapp):
     assert storage.get(item.id) is None  # nothing pending: Ctrl+Z is a no-op
 
 
-def test_manager_sidebar_shows_how_many_clips_each_pinboard_holds(window):
-    win, storage = window
-    board = storage.create_pinboard("Compras")
-    storage.add_to_pinboard(storage.capture(kind="text", text_content="x").id, board.id)
-    win.show_pinboard_manager()
-    texts = [win._sidebar._list.item(i).text() for i in range(win._sidebar._list.count())]
-    assert any("Compras" in t and t.rstrip().endswith("· 1") for t in texts)
-
-
+def test_manager_sidebar_shows_how_many_clips_each_pinboard_holds(window):
+    from nexus_linux.windows_timeline import COUNT_ROLE
+    win, storage = window
+    board = storage.create_pinboard("Compras")
+    storage.add_to_pinboard(storage.capture(kind="text", text_content="x").id, board.id)
+    win.show_pinboard_manager()
+    rows = {win._sidebar._list.item(i).text().strip(): win._sidebar._list.item(i)
+            for i in range(win._sidebar._list.count())}
+    assert rows["Compras"].data(COUNT_ROLE) == 1
+    assert "Compras" in rows["Compras"].toolTip() and "1 elemento" in rows["Compras"].toolTip()
+
+
+NASTY_NAMES = [
+    "Mercado Libre",
+    "Una colección con un nombre absurdamente largo que no cabe en ninguna barra lateral razonable",
+    "Ñandú ÁÉÍÓÚ ü — café ☕ 日本語のピンボード",
+    "🔥🚀💡🎯📌⭐️🗂️🎨❤️📎🔥🚀💡🎯📌",
+    "a" * 200,
+    "W" * 40,
+    "<b>html & \"quotes\"</b>",
+    "x",
+]
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.25, 1.5, 2.0])
+@pytest.mark.parametrize("count", [0, 7, 1234, 99999])
+def test_board_row_layout_never_hides_the_count_whatever_the_name(qapp, scale, count):
+    from PySide6.QtGui import QFont, QFontMetrics
+    from nexus_linux.windows_timeline import COUNT_GAP, COUNT_MIN_NAME, board_row_layout
+    font = QFont("Segoe UI"); font.setPixelSize(round(12 * scale))
+    metrics = QFontMetrics(font)
+    for text_width in (60, 100, round(110 * scale), round(160 * scale)):
+        for name in NASTY_NAMES:
+            elided, pill = board_row_layout(metrics, name, count, text_width)
+            assert pill >= metrics.horizontalAdvance(str(count))          # the full number fits in its pill
+            room = max(COUNT_MIN_NAME, text_width - pill - COUNT_GAP)
+            assert metrics.horizontalAdvance(elided) <= room              # name + gap + pill never exceed the row
+            if metrics.horizontalAdvance(name) <= room:
+                assert elided == name                                     # short names are untouched
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.25, 1.5, 2.0])
+def test_sidebar_rows_paint_the_pill_at_every_scale(window, qapp, scale):
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QColor, QImage, QPainter
+    from PySide6.QtWidgets import QStyleOptionViewItem
+    from nexus_linux import windows_design
+    win, storage = window
+    for name in NASTY_NAMES:
+        board = storage.create_pinboard(name[:80])
+        storage.add_to_pinboard(storage.capture(kind="text", text_content=f"c {name[:5]}").id, board.id)
+    win.show_pinboard_manager(); qapp.processEvents()
+    view = win._sidebar._list
+    delegate = view.itemDelegate()
+    width = round(150 * scale)
+    image = QImage(width, round(34 * scale), QImage.Format.Format_ARGB32)
+    for row in range(view.count()):
+        image.fill(QColor(20, 24, 32))
+        option = QStyleOptionViewItem()
+        option.initFrom(view); option.rect = QRect(0, 0, width, image.height()); option.widget = view
+        painter = QPainter(image)
+        delegate.paint(painter, option, view.model().index(row, 0))
+        painter.end()
+        # The pill sits in the right-hand strip: it must have been drawn there.
+        strip = [image.pixelColor(x, image.height() // 2) for x in range(width - round(30 * scale), width - 4)]
+        assert any(c != QColor(20, 24, 32) for c in strip), f"row {row} drew no counter"
+
+
 def test_manager_without_boards_explains_and_offers_creation(window):
     win, _ = window
     win.show_pinboard_manager()

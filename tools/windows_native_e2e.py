@@ -44,6 +44,10 @@ VK = {"CTRL": 0x11, "SHIFT": 0x10, "ALT": 0x12, "ESC": 0x1B, "9": 0x39, "7": 0x3
 KEYUP, MOUSE_RIGHT_DOWN, MOUSE_RIGHT_UP = 2, 0x0008, 0x0010
 
 
+class Interference(Exception):
+    """Something outside the test took the foreground: stop sending keys (they would reach another app)."""
+
+
 def key(vk, up=False):
     user32.keybd_event(vk, 0, KEYUP if up else 0, 0)
 
@@ -139,6 +143,32 @@ def main():
         results.append({"check": name, "ok": bool(ok), "detail": detail})
         print(("PASS " if ok else "FAIL ") + name + (f"  [{detail}]" if detail else ""), flush=True)
 
+    def safe_chord(*names):
+        """Keys go to whoever has the foreground, so only send them when that is Nexus or our target app."""
+        fg = foreground_pid()
+        if fg not in (set(nexus_pids) | {tpid}):
+            interference.append(f"foreground was {process_name(fg)} before keys {names}")
+            trace("INTERFERENCE", why="foreground owned by another app before sending keys", process=process_name(fg), keys=names)
+            raise Interference()
+        chord(*names)
+
+    nexus_pids, tpid = set(), -1
+    t0 = time.time()
+    trace_log = []
+    interference = []
+
+    def trace(event, **data):
+        trace_log.append({"t": round(time.time() - t0, 3), "event": event, **data})
+
+    def watch(label, probe, seconds):
+        """Sample probe() every 40 ms and keep only the changes: shows what really happened and when."""
+        last, end = object(), time.time() + seconds
+        while time.time() < end:
+            value = probe()
+            if value != last:
+                trace(label, value=value); last = value
+            time.sleep(0.04)
+
     real_before = {p["pid"] for p in acc.list_nexus_processes()}
     sandbox_local = Path(tempfile.gettempdir()) / f"nexus-e2e-{int(time.time())}"
     real_root = Path(os.environ["LOCALAPPDATA"]) / "Nexus"
@@ -170,7 +200,7 @@ def main():
         thwnd = wait_for(lambda: user32.FindWindowW(None, "NexusE2E-Target"), 8)
         check("target app window visible", bool(thwnd))
         tpid = wintypes.DWORD(); user32.GetWindowThreadProcessId(thwnd, ctypes.byref(tpid)); tpid = tpid.value
-        force_foreground(thwnd); time.sleep(0.5)
+        force_foreground(thwnd); wait_for(lambda: foreground_pid() == tpid, 3)
         check("target app is the foreground app", foreground_pid() == tpid)
 
         def nexus_window():
@@ -180,10 +210,16 @@ def main():
                     return found[0]
             return None
 
-        chord("CTRL", "SHIFT", "9")
+        trace("hotkey-open")
+        safe_chord("CTRL", "SHIFT", "9")
         win = wait_for(nexus_window, 5)
         check("global hotkey Ctrl+Shift+9 opens the panel", bool(win))
-        time.sleep(0.6)
+        # Condition-based readiness (no fixed sleeps): Nexus is foreground AND its rectangle has stopped changing.
+        def ready():
+            w = nexus_window()
+            return w is not None and foreground_pid() in nexus_pids
+        watch("open-state", lambda: (nexus_window() or (None,))[1:] + (foreground_pid() in nexus_pids,), 1.0)
+        win = nexus_window() or win
         check("focus moves to Nexus when it opens", foreground_pid() in nexus_pids, f"fg={foreground_pid()}")
 
         # native screenshot + right-click on the first card
@@ -201,45 +237,55 @@ def main():
             _, left, top, w, h = win
             grab("e2e-panel-open", win)
             cx, cy = int(left + w * 0.148), int(top + h * 0.66)
-            user32.SetCursorPos(cx, cy); time.sleep(0.2)
+            user32.SetCursorPos(cx, cy)
+            pt = wintypes.POINT(); user32.GetCursorPos(ctypes.byref(pt))
+            under = user32.WindowFromPoint(pt)
+            under_pid = wintypes.DWORD(); user32.GetWindowThreadProcessId(under, ctypes.byref(under_pid))
+            trace("right-click", cursor=(pt.x, pt.y), wanted=(cx, cy), under_pid_is_nexus=under_pid.value in nexus_pids,
+                  under_process=process_name(under_pid.value), fg_is_nexus=foreground_pid() in nexus_pids)
+            if not (under_pid.value in nexus_pids and foreground_pid() in nexus_pids):
+                # Something else owns the cursor position or the foreground: the automation is
+                # being disturbed from outside (another app stealing focus, the user's mouse).
+                interference.append("right-click preconditions not met")
+                trace("INTERFERENCE", why="pointer/foreground not Nexus at click time")
             user32.mouse_event(MOUSE_RIGHT_DOWN, 0, 0, 0, 0); user32.mouse_event(MOUSE_RIGHT_UP, 0, 0, 0, 0)
-            wait_for(lambda: len(windows_of_any(nexus_pids)) >= 2, 3.0)
-            time.sleep(0.2)
+            watch("menu-windows", lambda: (len(windows_of_any(nexus_pids)), foreground_pid() in nexus_pids), 1.5)
             grab("e2e-context-menu", (None, left, top, w, h + 260))
             popups = windows_of_any(nexus_pids)
             check("native right-click opens a context menu (extra top-level window)", len(popups) >= 2, f"windows={len(popups)}")  # see screenshot with --keep-captures
             check("(diag) foreground while menu open is Nexus", foreground_pid() in nexus_pids, f"fg={foreground_pid()}")
-            chord("ESC"); time.sleep(0.6)
+            trace("esc-menu"); safe_chord("ESC")
+            watch("after-esc-menu", lambda: (len(windows_of_any(nexus_pids)), nexus_window() is not None, foreground_pid() in nexus_pids), 1.0)
             check("Esc closes the menu but keeps the panel", nexus_window() is not None)
             check("(diag) foreground after the menu closed is still Nexus", foreground_pid() in nexus_pids, f"fg={foreground_pid()} nexus={sorted(nexus_pids)}")
-        chord("ESC")
+        trace("esc-panel"); safe_chord("ESC")
         closed = wait_for(lambda: nexus_window() is None, 4)
         check("Esc closes the panel", bool(closed))
-        time.sleep(0.5)
+        watch("after-close", lambda: (nexus_window() is not None, foreground_pid() == tpid, process_name(foreground_pid())), 1.0)
         check("focus returns to the target app after closing", foreground_pid() == tpid, f"fg={foreground_pid()} {process_name(foreground_pid())}")
 
-        chord("CTRL", "SHIFT", "9")
+        safe_chord("CTRL", "SHIFT", "9")
         check("hotkey reopens the panel", bool(wait_for(nexus_window, 5)))
-        chord("ESC"); wait_for(lambda: nexus_window() is None, 4); time.sleep(0.3)
-        force_foreground(thwnd); time.sleep(0.3)
-        chord("CTRL", "SHIFT", "7")
+        safe_chord("ESC"); wait_for(lambda: nexus_window() is None, 4)
+        force_foreground(thwnd); wait_for(lambda: foreground_pid() == tpid, 3)
+        safe_chord("CTRL", "SHIFT", "7")
         stack = wait_for(nexus_window, 5)
         check("Stack hotkey Ctrl+Shift+7 opens the Stack window", bool(stack))
-        chord("ESC"); check("Esc closes the Stack window", bool(wait_for(lambda: nexus_window() is None, 4)))
+        safe_chord("ESC"); check("Esc closes the Stack window", bool(wait_for(lambda: nexus_window() is None, 4)))
 
         # restart: kill only our processes, start again
-        acc.kill(nexus_procs); time.sleep(2)
+        acc.kill(nexus_procs); wait_for(lambda: not acc.validate_targets(nexus_procs, acc.list_nexus_processes()), 10, 0.25)
         check("sandboxed Nexus stopped", not acc.validate_targets(nexus_procs, acc.list_nexus_processes()))
         before = {p["pid"] for p in acc.list_nexus_processes()}
         nexus, _ = start_nexus(env, code_src, sandbox_local)
         nexus_procs = [p for p in acc.list_nexus_processes() if p["pid"] not in before and p["pid"] not in real_before]
         nexus_pids = {p["pid"] for p in nexus_procs}
-        force_foreground(thwnd); time.sleep(0.4)
-        chord("CTRL", "SHIFT", "9")
+        force_foreground(thwnd); wait_for(lambda: foreground_pid() == tpid, 3)
+        safe_chord("CTRL", "SHIFT", "9")
         check("after restart the hotkey and panel work again", bool(wait_for(nexus_window, 6)))
         if nexus_window():
             grab("e2e-after-restart", nexus_window())
-        chord("ESC")
+        safe_chord("ESC")
         import sqlite3
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         counts = (conn.execute("SELECT COUNT(*) FROM clip_items").fetchone()[0],
@@ -247,6 +293,9 @@ def main():
                   conn.execute("SELECT COUNT(*) FROM clip_items WHERE title IS NOT NULL").fetchone()[0])
         conn.close()
         check("data persisted across restart (6 clips, 1 pinboard, 1 title)", counts == (6, 1, 1), str(counts))
+    except Interference:
+        results.append({"check": "run aborted: external focus theft (inconclusive, not a Nexus failure)", "ok": None, "detail": "; ".join(interference)})
+        print("INCONCLUSIVE  external focus theft:", "; ".join(interference), flush=True)
     finally:
         mine = [p for p in acc.list_nexus_processes() if p["pid"] not in real_before]
         acc.kill(mine)
@@ -257,7 +306,11 @@ def main():
                         "detail": f"{sorted(real_before)} -> {sorted(real_after)}"})
         print("PASS " if real_before == real_after else "FAIL ", "personal Nexus untouched", sorted(real_before), "->", sorted(real_after))
         shutil.rmtree(sandbox_local, ignore_errors=True)
-    (out / "e2e-results.json").write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+    if interference:
+        print("NOTE: external interference detected during this run:", interference)
+    (out / "e2e-results.json").write_text(json.dumps({"interference": interference, "results": results, "trace": trace_log}, indent=1, ensure_ascii=False), encoding="utf-8")
+    if any(r["ok"] is None for r in results):
+        return 2
     return 0 if all(r["ok"] for r in results) else 1
 
 

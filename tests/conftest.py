@@ -37,6 +37,24 @@ def deterministic_system_theme():
     windows_system_theme.set_override(None)
 
 
+@pytest.fixture(autouse=True)
+def isolate_global_input_state(monkeypatch):
+    """Tests must not depend on what the person at the keyboard is doing.
+
+    The paste code reads two pieces of *global* Windows state even under the offscreen
+    platform: the clipboard sequence number (any other app copying changes it) and the
+    physical key state (a held Shift/Alt/Win/V makes the paste retry loop recurse). Both made
+    unit tests flaky on a busy desktop. Start every test from a quiet, constant state; tests
+    that exercise those paths patch them again themselves, and their patch wins."""
+    from nexus_linux import windows_clipboard, windows_paste, windows_platform, windows_stack
+    for module in (windows_platform, windows_paste, windows_clipboard, windows_stack):
+        monkeypatch.setattr(module, "clipboard_sequence", lambda: 1000, raising=False)
+    from nexus_linux import windows_keyboard
+    for module in (windows_platform, windows_paste, windows_keyboard):  # each module owns its own user32 handle
+        monkeypatch.setattr(module.user32, "GetAsyncKeyState", lambda key: 0)
+    yield
+
+
 class FakePasteService:
     def __init__(self, fail_write: bool = False, fail_paste: bool = False):
         self.written: list = []

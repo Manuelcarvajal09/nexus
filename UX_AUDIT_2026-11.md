@@ -83,3 +83,37 @@ Resultado: tras la corrección de foco, 18/18 en las ejecuciones limpias; en 14 
 
 ### Pruebas y rendimiento
 995 tests OK (+14). Benchmark sintético: apertura mediana 12.3 ms, 81.6 MiB, CPU reposo ≈0.
+
+---
+## Cuarta pasada: estabilización y calidad verificable (2026-11-06)
+
+### Fallos intermitentes: causas
+| Síntoma | Causa identificada | Evidencia | Corrección |
+|---|---|---|---|
+| E2E: foco acababa en `warp.exe` al cerrar con Esc (1 de 5) | **Defecto real**: Nexus no recordaba la app previa; el foco dependía del orden Z de Windows | 6/6 y luego 20/20 con la corrección, foco de vuelta en <0,09 s | `_return_target` + `_return_focus` (ya commiteado antes) |
+| E2E: menú no abierto / Esc no cerraba el panel / foco en otra app (≈4 de 50 ejecuciones) | **Mecanismo de automatización**: otra app (`warp.exe`, `Ueli.exe`) toma el foco durante la prueba; el menú se cierra al perder la activación y las teclas Esc iban a esa otra app | Traza de la ejecución 17: menú abierto con foco Nexus, 1,1 s después foco = `warp.exe` sin acción de Nexus | La prueba ya no envía teclas si el foco no es de Nexus ni de la ventana de prueba y clasifica la ejecución como **INCONCLUSIVA por interferencia externa** |
+| Test unitario `test_sendinput_failure_…` falló 1 vez en ≈55 ejecuciones | **Dependencia del entorno**: lee el estado físico del teclado (`GetAsyncKeyState`) y el contador real del portapapeles; con Mayús/Alt/Win/V pulsadas el reintento recursa | Reproducido de forma determinista: `RecursionError` antes, pasa después | `tests/conftest.py`: fixture autouse que fija ambos a un estado constante (los tests que los necesitan los parchean y su parche prevalece) |
+
+No se aumentaron tiempos de espera: las esperas fijas de la prueba nativa se sustituyeron por esperas condicionales (foco, rectángulo estable, ventanas presentes) y se añadió traza de cambios de estado (`e2e-results.json`).
+Latencias medidas en 20 ejecuciones: menú tras clic derecho 0,05–0,12 s; foco en Nexus tras el atajo 0,19–0,22 s; foco de vuelta a la app previa tras Esc 0,065–0,082 s; rectángulo de la ventana estable (1 valor distinto).
+
+### Repeticiones de la prueba nativa (código final)
+| Lote | Ejecuciones | Resultado |
+|---|---|---|
+| Con trazas, tras el arreglo de foco | 20 | 20 limpias |
+| Tras contadores y fixture | 20 | 19 limpias, 1 fallo real de foco (`warp.exe`, anterior a la guarda) |
+| Con guarda + esperas condicionales | 30 | 29 limpias, 1 inconclusa por interferencia externa (`Ueli.exe`) |
+No se detectó ningún fallo atribuible a Nexus tras la corrección de foco.
+
+### Contadores de Pinboards
+Antes: texto «Nombre · N» dentro del propio texto, la elipsis cortaba el número con nombres largos.
+Ahora: columna reservada con **píldora** a la derecha (`_BoardRowDelegate`); solo el nombre se recorta, el contador nunca; tooltip con nombre completo + cantidad. Pruebas: 8 nombres extremos (muy largo, acentos, CJK, emojis, 200 caracteres, HTML, 1 carácter) × 4 contadores (0–99999) × 4 escalas × 4 anchos, más pintado real del contador en 4 escalas. Se intentó ensanchar la barra (184 px) y se revirtió: rompía la geometría portrait estrecha (scroll horizontal).
+
+### Validación final
+* 1015 tests OK (+20), repetidos 7 veces seguidas sin fallos tras el fixture.
+* Auditoría de layout en plataforma Windows real, 5 temas × 4 escalas (100/125/150/200 %), 6 superficies (historial, pinboard, gestor, gestor con nombres extremos, Configuración, Stack): 120 combinaciones, **0 problemas** (ventana dentro de pantalla, sin desbordes, sin texto recortado, sin scroll horizontal). La auditoría no se probó con un fallo sembrado.
+* Rendimiento (3 mediciones): apertura mediana 10,1–10,9 ms (línea previa 11,9–15,4), 81,9–82,4 MiB, CPU reposo 0.
+* Portapapeles real: contador de secuencia sin cambios durante la suite (3142 → 3142; reposo y suite completa: 0 cambios en muestreo de 50 ms).
+
+### Pendiente
+Pruebas de captura real, pegado entre apps y Ctrl+V del Stack: ver `CLIPBOARD_TEST_ISOLATION.md` (requiere Windows Sandbox o VM con portapapeles desactivado; no disponible hoy).

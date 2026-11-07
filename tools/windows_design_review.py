@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / "src")); sys.path.insert(0, str(ROOT / "tools"))
 from PySide6.QtCore import QEvent, QRect
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMenu
+from PySide6.QtWidgets import QApplication, QMenu, QWidget
 from nexus_linux import paths, styles, windows_app as wapp, windows_design
 from nexus_linux.storage import StorageService
 from nexus_linux.windows_settings import load_settings, save_settings
@@ -39,6 +39,7 @@ def main():
     ap.add_argument("--scale", default="1")
     ap.add_argument("--screen", default="1920x1080", help="offscreen logical work area")
     ap.add_argument("--real", action="store_true")
+    ap.add_argument("--audit", action="store_true", help="print layout problems as JSON instead of saving images")
     ap.add_argument("--surfaces", default="history,pinboard,manager,empty,stack,settings,stress,notice")
     args = ap.parse_args()
     os.environ["QT_SCALE_FACTOR"] = args.scale
@@ -78,8 +79,42 @@ def main():
         hotkeys = wapp.GlobalHotkeys(1, store, lambda: save_settings(settings)); hotkeys.register_all()
         panel.configure_settings(wapp.SettingsBackend(settings, store, hotkeys, panel, []))
 
+        audit_report = {}
+
+        def audit(widget, name):
+            from PySide6.QtGui import QFontMetrics
+            from PySide6.QtWidgets import QAbstractButton, QLabel, QScrollArea
+            problems = []
+            root = widget.rect()
+            screen = widget.screen() or QGuiApplication.primaryScreen()
+            if args.real and not screen.availableGeometry().contains(widget.frameGeometry()):
+                problems.append(f"window outside screen: {widget.frameGeometry().getRect()} vs {screen.availableGeometry().getRect()}")
+            for child in widget.findChildren(QWidget):
+                if not child.isVisibleTo(widget) or child.width() <= 0:
+                    continue
+                ancestor, scrolled = child.parentWidget(), False
+                while ancestor is not None and ancestor is not widget:
+                    scrolled = scrolled or isinstance(ancestor, QScrollArea)
+                    ancestor = ancestor.parentWidget()
+                if not scrolled and not root.contains(child.mapTo(widget, child.rect().topLeft())):
+                    problems.append(f"{type(child).__name__}#{child.objectName()} starts outside the window")
+                right = child.mapTo(widget, child.rect().topRight()).x()
+                if right > root.right() + 1 and not scrolled:
+                    problems.append(f"{type(child).__name__}#{child.objectName()} overflows right by {right - root.right()}px")
+                text = child.text() if isinstance(child, (QLabel, QAbstractButton)) else ""
+                if text and not (isinstance(child, QLabel) and (child.wordWrap() or child.pixmap() is not None)):
+                    need = QFontMetrics(child.font()).horizontalAdvance(text.split("	")[0])
+                    if child.width() < need - 1 and child.maximumWidth() >= 16777215 - 1 or child.width() + 1 < need * 0.9:
+                        problems.append(f"text may be clipped: '{text[:30]}' needs {need}px has {child.width()}px ({type(child).__name__}#{child.objectName()})")
+            for area in widget.findChildren(QScrollArea):
+                if area.isVisibleTo(widget) and area.horizontalScrollBar().maximum() > 0 and area.horizontalScrollBarPolicy() != Qt.ScrollBarPolicy.ScrollBarAlwaysOff:
+                    problems.append(f"horizontal scroll in {area.objectName()} (max {area.horizontalScrollBar().maximum()})")
+            audit_report[name] = problems
+
         def snap(widget, name, wait=450):
             app.processEvents(); QTest.qWait(wait)
+            if args.audit:
+                audit(widget, name); return
             if args.real:
                 g = widget.frameGeometry(); pad = 0
                 r = QRect(g.x() - pad, g.y() - pad, g.width() + 2 * pad, g.height() + 2 * pad)
@@ -106,6 +141,13 @@ def main():
                 if n % 7 == 0: storage.set_title(it.id, long_title)
             panel.refresh(); panel._search.setText("sint"); panel.refresh(); snap(panel, "stress-search")
             panel._search.setText(""); panel.refresh()
+        if "nasty" in wanted:
+            for name in ("Una colección con un nombre absurdamente largo que no cabe en la barra lateral",
+                         "Ñandú ÁÉÍÓÚ — café ☕ 日本語", "🔥🚀💡🎯📌⭐️🗂️🎨❤️📎", "W" * 30, "x"):
+                b = storage.create_pinboard(name[:80])
+                for k in range(3 if len(name) < 5 else 12):
+                    storage.add_to_pinboard(storage.capture(kind="text", text_content=f"{name[:6]} {k}").id, b.id)
+            panel.show_pinboard_manager(); snap(panel, "manager-nasty"); panel.close_pinboard_manager()
         if "notice" in wanted:
             panel.refresh()
             panel._delete_item(panel._storage.get(panel._model.item_at(0).id)); snap(panel, "notice-undo")
@@ -146,7 +188,11 @@ def main():
         panel.deleteLater()
         app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         storage.close()
-        print(out)
+        if args.audit:
+            import json as _json
+            print("AUDIT " + _json.dumps({"theme": args.theme, "scale": args.scale, "surfaces": audit_report}, ensure_ascii=False))
+        else:
+            print(out)
 
 
 if __name__ == "__main__":
