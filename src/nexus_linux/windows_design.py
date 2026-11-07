@@ -310,6 +310,7 @@ def qss() -> str:
     QLineEdit#titleEditor {{ padding: 0 6px; border-radius: 7px; font-size: 13px; font-weight: 600;
         background: {card_hover}; border: 1px solid {p.accent}; }}
     QLabel#settingsHeading {{ color: {p.text}; font-size: 14px; font-weight: 600; }}
+    QLabel#settingsPageTitle {{ color: {p.muted}; font-size: 12px; font-weight: 600; letter-spacing: .6px; }}
     QLabel#settingsSub, QLabel#shortcutHint {{ color: {p.muted}; font-size: 11px; }}
     QLabel#shortcutLabel {{ color: {p.text}; font-size: 12px; font-weight: 600; }}
     QLabel#scopePill {{ background: {control_bg}; color: {p.muted}; border-radius: 7px; padding: 2px 8px; font-size: 10px; font-weight: 600; }}

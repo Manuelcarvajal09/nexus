@@ -273,3 +273,20 @@ def test_page_widgets_are_styled_by_the_windows_theme(env):
     sheet = windows_design.qss()
     for selector in ("scopePill", "keyPill", "statusError", "keyEdit", "captureToggle", "settingsHeading"):
         assert selector in sheet
+
+
+def test_settings_page_names_itself(env):
+    window, *_ = env
+    title = window._settings_page.findChild(QLabel, "settingsPageTitle")
+    assert title is not None and title.text() == "Configuración"
+
+
+def test_search_placeholder_follows_the_open_pinboard(env):
+    window, _, _, _, _ = env
+    board = window._storage.create_pinboard("Mercado Libre", "#F0C56E", None)
+    window.refresh()
+    assert window._search.placeholderText() == "Buscar en tu historial…"
+    window._select_pinboard(board.id)
+    assert "Mercado Libre" in window._search.placeholderText()
+    window._select_pinboard(None)
+    assert window._search.placeholderText() == "Buscar en tu historial…"

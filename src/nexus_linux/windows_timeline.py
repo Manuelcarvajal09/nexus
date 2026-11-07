@@ -674,6 +674,9 @@ class WindowsTimelineWindow(TimelineWindow):
                 and self._storage.get_pinboard(self._current_pinboard_id) is None):
             self._current_pinboard_id = None
         super().refresh()
+        # The search box says where it will look (history or the open pinboard).
+        board = self._storage.get_pinboard(self._current_pinboard_id) if self._current_pinboard_id is not None else None
+        self._search.setPlaceholderText(f"Buscar en «{board.name}»…" if board else "Buscar en tu historial…")
         if self._model.rowCount() == 0:
             query = self._search.text().strip()
             if query:

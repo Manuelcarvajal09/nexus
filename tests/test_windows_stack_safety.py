@@ -689,3 +689,17 @@ def test_clear_stack_disarms_when_hidden_and_skips_confirmation_for_one_item(qap
         assert rig.stack.items() == []  # a single item is trivial to recopy
     finally:
         _close(single, qapp)
+
+
+def test_stack_list_never_cuts_the_last_visible_row(qapp, storage, rig):
+    window = _window_with(rig, storage, qapp, 4)
+    try:
+        window.show()
+        qapp.processEvents()
+        window._adapt_height()
+        view = window._list
+        last = view.itemWidget(view.item(view.count() - 1))
+        assert last is not None
+        assert last.geometry().bottom() <= view.viewport().height()  # fully inside the viewport
+    finally:
+        _close(window, qapp)

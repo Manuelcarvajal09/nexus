@@ -471,6 +471,16 @@ class WindowsStackWindow(StackWindow):
         if row_h <= 0:
             row_h = 56
         list_h = 0 if visible == 0 else visible * row_h + max(0, visible - 1) * self._list.spacing() + 8
+        if visible:
+            # The stylesheet adds per-item padding that sizeHint ignores: measure the
+            # real extent of the rows we want visible so none is cut in half.
+            first = self._list.visualItemRect(self._list.item(0))
+            last = self._list.visualItemRect(self._list.item(visible - 1))
+            widget = self._list.itemWidget(self._list.item(visible - 1))
+            bottom = max(last.bottom(), widget.geometry().bottom()) if widget is not None else last.bottom()
+            measured = bottom - first.top() + 1 + 2 * self._list.frameWidth() + 18
+            if last.height() > 0:
+                list_h = max(list_h, measured)
         self._list.setFixedHeight(list_h)
         self._list.setVisible(visible > 0)
         self._list.setVerticalScrollBarPolicy(

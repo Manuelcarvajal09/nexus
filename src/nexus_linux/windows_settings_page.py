@@ -177,7 +177,15 @@ class SettingsPage(QWidget):
         self.back_button = QPushButton("Volver")
         self.back_button.setObjectName("expandToggle")
         self.back_button.clicked.connect(self.back_requested.emit)
-        outer.addWidget(self.back_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        # "Volver" + the page's own name, so Configuración reads as a place.
+        top = QHBoxLayout()
+        top.setSpacing(windows_design.BLOCK_GAP)
+        top.addWidget(self.back_button)
+        page_title = QLabel("Configuración")
+        page_title.setObjectName("settingsPageTitle")
+        top.addWidget(page_title)
+        top.addStretch(1)
+        outer.addLayout(top)
 
         scroll = QScrollArea()
         scroll.setObjectName("settingsScroll")
