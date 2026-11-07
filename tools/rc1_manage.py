@@ -23,6 +23,9 @@ Safety rules
 """
 from __future__ import annotations
 
+import sys as _sys
+_sys.dont_write_bytecode = True  # never drop __pycache__ into a (possibly read-only) release package
+
 import argparse
 import json
 import shutil

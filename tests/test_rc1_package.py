@@ -265,3 +265,15 @@ def test_real_install_locations_need_an_explicit_override(tmp_path):
 def test_cli_requires_an_explicit_root():
     with pytest.raises(SystemExit):
         manage.main(["install", "--package", "x"])
+
+
+def test_running_the_shipped_tools_never_writes_into_the_package(tmp_path):
+    """Regression: importing rc1_verify from the package used to drop tools/__pycache__ into it,
+    which invalidated SHA256SUMS (and fails outright on the read-only Sandbox mapping)."""
+    import subprocess
+    dist = make_package(tmp_path)
+    done = subprocess.run([sys.executable, str(dist / "tools" / "rc1_manage.py"), "status", "--root", str(tmp_path / "root")],
+                          capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    assert not list(dist.rglob("__pycache__")) and not list(dist.rglob("*.pyc"))
+    assert verify.verify_package(dist)

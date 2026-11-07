@@ -13,6 +13,9 @@ It prints only names, versions and hashes; it never reads clip data.
 """
 from __future__ import annotations
 
+import sys as _sys
+_sys.dont_write_bytecode = True  # never drop __pycache__ into a (possibly read-only) release package
+
 import base64
 import csv
 import hashlib
