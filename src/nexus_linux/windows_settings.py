@@ -4,7 +4,7 @@ from . import paths
 
 DEFAULTS = {
     "panel_hotkey": "Ctrl+Shift+V", "stack_hotkey": "Ctrl+Shift+C",
-    "launch_at_login": True, "retention_days": 30, "paused": False,
+    "autostart": False, "retention_days": 30, "paused": False,
     "hide_on_focus_loss": False, "bottom_gap": 24,
     "excluded_apps": ["1Password.exe", "Bitwarden.exe", "KeePass.exe", "KeePassXC.exe", "LastPass.exe"],
 }

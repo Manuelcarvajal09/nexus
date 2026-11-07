@@ -1,5 +1,18 @@
 # Nexus Windows — Registro de cambios
 
+## 0.2.0rc2 (release candidate, local, no distribuida)
+
+Sustituye a `0.2.0rc1` (que queda como tag local `nexus-windows-0.2.0rc1`, sin cambios). Motivo: inicio con Windows.
+
+* **Inicio con Windows configurable** (Configuración › Inicio): **desactivado por defecto** en una instalación nueva.
+  Solo la elección explícita del usuario crea la entrada (por usuario, `HKCU\...\Run`; sin administrador).
+  El ajuste antiguo `launch_at_login` (que ningún código leía y que los `settings.json` existentes traen como `true`) se ignora a propósito.
+* **Se respeta al actualizar**: si estaba activado, la actualización y la reversión reapuntan la entrada a la versión vigente;
+  si estaba desactivado, sigue desactivado; las entradas de otros programas u otras instalaciones nunca se tocan;
+  al desinstalar solo se elimina una entrada que apunte a la carpeta desinstalada.
+* Casos del Sandbox ampliados: T11 (inicio con Windows en el registro real del sandbox) y T12 (cierre limpio desde la bandeja).
+* Las pruebas automáticas usan un registro simulado: ninguna toca el `Run` real.
+
 ## 0.2.0rc1 (release candidate, local, no distribuida)
 
 Primera versión candidata de la capa nativa de Windows (PySide6). La versión anterior del paquete

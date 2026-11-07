@@ -1,4 +1,4 @@
-# Nexus Windows 0.2.0rc1 — paquete candidato (local, sin distribuir)
+# Nexus Windows 0.2.0rc2 — paquete candidato (local, sin distribuir)
 
 Este paquete **no sustituye ni modifica tu instalación actual**. Instalarlo es una acción tuya, explícita,
 con `--root` obligatorio; por defecto solo se instala en carpetas temporales.
@@ -6,7 +6,7 @@ con `--root` obligatorio; por defecto solo se instala en carpetas temporales.
 ## Contenido
 | Archivo | Para qué |
 |---|---|
-| `nexus_windows-0.2.0rc1-py3-none-any.whl` | La aplicación (compilada desde el commit indicado en `manifest.json`) |
+| `nexus_windows-0.2.0rc2-py3-none-any.whl` | La aplicación (compilada desde el commit indicado en `manifest.json`) |
 | `wheelhouse/` + `requirements-rc1.lock` | Dependencias de ejecución (PySide6-Essentials, shiboken6) fijadas por hash; instalación **sin red** |
 | `tools/rc1_manage.py` | Instalar / actualizar / revertir / desinstalar |
 | `tools/rc1_verify.py` | Verificar la integridad del paquete |
@@ -26,8 +26,10 @@ cada wheel de `wheelhouse/` coincida con el hash fijado en `requirements-rc1.loc
 ```powershell
 python tools\rc1_manage.py install --package . --root C:\Ruta\Nexus-RC
 ```
-* Crea `versions\0.2.0rc1\venv`, instala **sin red** y con `--require-hashes`, y prueba un `import` real antes de darla por buena.
+* Crea `versions\0.2.0rc2\venv`, instala **sin red** y con `--require-hashes`, y prueba un `import` real antes de darla por buena.
 * Escribe `Nexus.cmd` (lanzador sin ventana de consola). **No** arranca la app, **no** crea inicio automático ni accesos directos.
+* Inicio con Windows: **desactivado en una instalación nueva**. Se activa solo desde Configuración › Inicio (entrada por usuario en
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, sin administrador).
 * Fuera de la carpeta temporal del sistema exige `--allow-real-install`.
 * Tus datos siguen en `%LOCALAPPDATA%\Nexus` (nunca dentro de la carpeta de instalación).
 
@@ -39,11 +41,14 @@ python tools\rc1_manage.py install --package . --root C:\Ruta\Nexus-RC
    Antes de instalar toma una **copia de seguridad verificada** de `nexus.sqlite` (en `<root>\backups\`) y aborta si no verifica.
    La versión anterior queda intacta en `versions\`.
 3. Abre `Nexus.cmd`. El esquema solo tiene cambios **aditivos** (`title`, `title_search`).
+4. Inicio con Windows: si estaba **activado**, la actualización reapunta la entrada a la versión nueva; si estaba **desactivado**, sigue
+   desactivado. Nunca se toca una entrada de otro programa ni de otra instalación.
 
 ## 4. Revertir
 ```powershell
 python tools\rc1_manage.py rollback --root C:\Ruta\Nexus-RC                # a la versión anterior
 python tools\rc1_manage.py rollback --root C:\Ruta\Nexus-RC --to 0.2.0rc2  # o a cualquiera instalada (también «hacia delante»)
+# (la reversión también reapunta el inicio con Windows si estaba activado)
 ```
 Los datos no se tocan. Si tu base ya tiene títulos y vuelves a una versión **anterior a la entrega de títulos**, esa versión purga por
 antigüedad los clips con título: usa antes `windows_db_tools.py protect-titled` o restaura la copia (ver `ACEPTACION_Y_ACTUALIZACION.md`, R-A/R-B).
@@ -53,7 +58,8 @@ Para restaurar datos: `windows_db_tools.py verify <copia>` y `merge-newer` (docu
 ```powershell
 python tools\rc1_manage.py uninstall --root C:\Ruta\Nexus-RC
 ```
-Borra solo la carpeta de instalación (y solo si contiene su marcador `.nexus-rc-install`). **Conserva tus datos.**
+Borra solo la carpeta de instalación (y solo si contiene su marcador `.nexus-rc-install`). **Conserva tus datos.** Si el inicio con
+Windows apuntaba a esa carpeta, se elimina esa entrada (nunca queda una entrada colgando).
 Borrarlos exige además `--remove-data <carpeta> --yes`.
 
 ## 6. Reproducir la compilación
@@ -86,14 +92,14 @@ falla si no son idénticos byte a byte; descarga las dependencias con `--require
 | Ctrl+V del Stack | Sí | Sí (con dobles) | **No** | **Pendiente** (T07) |
 | Manejo de duplicados | Sí | Sí | No | **Pendiente** (T03) |
 | Recuperación: conflicto de atajo, cierre forzado | Sí | Sí | Parcial | **Pendiente** (T09–T10) |
-| Cierre limpio desde la bandeja | Sí | Parcial (cierre de SQLite en smoke) | **No** (la prueba cierra el proceso a la fuerza) | Pendiente |
-| Inicio automático | **No** | — | — | — |
+| Inicio con Windows (opcional, desactivado por defecto, respetado al actualizar) | Sí | **Sí** (registro simulado; nunca toca el real) | **No** (no se escribe en tu `Run`) | **Pendiente** (T11) |
+| Cierre limpio desde la bandeja | Sí | Parcial | No (ver nota) | **Pendiente** (T12) |
 
 ## Limitaciones conocidas
 1. **Sin validación de portapapeles real**: captura, pegado entre aplicaciones y Ctrl+V del Stack solo están probados con dobles. Requieren Windows Sandbox
    (ver `release/sandbox/README_SANDBOX.md`), no activado en este equipo (administrador + reinicio).
-2. **Inicio automático no implementado.** El ajuste `launch_at_login` existe en `settings.json` (valor por defecto `true`) pero ningún código
-   lo lee; el instalador no crea acceso directo en Inicio. Decisión de producto pendiente.
+2. **Inicio con Windows**: implementado como opción, desactivada por defecto; su comportamiento real en el registro solo está probado con un registro simulado
+   hasta que se ejecute T11 en el Sandbox. El ajuste antiguo `launch_at_login` se ignora (ningún código lo leía).
 3. **No hay instalador gráfico, ni firma de código, ni actualización automática.** Es un paquete de línea de comandos para evaluación.
 4. La dependencia de ejecución cambió a `PySide6-Essentials` (antes el metapaquete `PySide6`). Validado con toda la suite en un venv limpio; WebEngine/Addons/Pdf ya no se instalan.
 5. Solo Windows x64 con CPython 3.11 (el wheelhouse es `win_amd64`/`abi3`). Linux y macOS no se han validado en esta rama.

@@ -8,7 +8,7 @@ from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 from . import paths, styles, type_detection
-from . import windows_design, windows_optical, windows_sandbox, windows_system_theme
+from . import windows_autostart, windows_design, windows_optical, windows_sandbox, windows_system_theme
 from .windows_icons import app_icon, set_app_user_model_id, tray_icon
 from .windows_motion import fade_in
 from .windows_backdrop import BackdropController, NativeBackend
@@ -217,6 +217,22 @@ class SettingsBackend:
             self.settings["glass_optical"] = enabled
             self._save()
         windows_optical.set_enabled(enabled)
+
+    def autostart_enabled(self):
+        return bool(self.settings.get("autostart", False))
+
+    def set_autostart(self, enabled, registry=None):
+        """Returns "" on success, or a message the Settings page shows (the setting is then left unchanged)."""
+        enabled = bool(enabled)
+        try:
+            registry = registry or windows_autostart.default_registry()   # raises in sandbox mode: nothing is written
+            windows_autostart.set_enabled(enabled, registry)
+        except (windows_autostart.AutostartError, OSError) as exc:
+            logging.getLogger("nexus.autostart").warning("autostart change failed: %s", type(exc).__name__)
+            return "No se pudo cambiar el inicio con Windows. Inténtalo de nuevo."
+        self.settings["autostart"] = enabled
+        self._save()
+        return ""
 
     def on_capture_changed(self, callback):
         """Tray and Settings both show the pause state; either can change it."""
@@ -523,6 +539,10 @@ def _run_windows(lifetime):
     hotkeys.register_all()
     notices += hotkeys.notices
     settings_backend = SettingsBackend(settings, shortcut_store, hotkeys, timeline, notices)
+    try:   # keep an enabled entry pointing at THIS interpreter (follows upgrades/rollbacks); never creates one
+        logging.getLogger("nexus.autostart").info("sync %s", windows_autostart.sync(bool(settings.get("autostart", False))))
+    except Exception as exc:  # noqa: BLE001 - autostart must never prevent startup
+        logging.getLogger("nexus.autostart").warning("sync failed: %s", type(exc).__name__)
     timeline.configure_settings(settings_backend)
     def show_pinboards():
         stack_window.fade_hide()

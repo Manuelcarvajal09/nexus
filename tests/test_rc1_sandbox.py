@@ -102,7 +102,7 @@ def test_dry_run_touches_nothing_and_lists_every_test(tmp_path):
                            "--results", str(tmp_path), "--isolation-report", str(tmp_path / "none.json"), "--dry-run"],
                           capture_output=True, text=True, timeout=60)
     assert done.returncode == 0
-    assert all(f"T{n:02d}" in done.stdout for n in range(1, 11))
+    assert all(f"T{n:02d}" in done.stdout for n in range(1, 13))
     assert "would refuse" in done.stdout          # on this (non-sandbox) machine
     assert not (tmp_path / "functional_results.json").exists()
 
@@ -110,4 +110,4 @@ def test_dry_run_touches_nothing_and_lists_every_test(tmp_path):
 def test_functional_tests_declare_every_test_they_implement():
     module = load(ROOT / "release" / "sandbox" / "guest" / "functional_tests.py", "functional_tests2")
     ids = {tid for tid, _ in module.TESTS}
-    assert ids == {f"T{n:02d}" for n in range(1, 11)}
+    assert ids == {f"T{n:02d}" for n in range(1, 13)}

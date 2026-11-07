@@ -47,11 +47,12 @@ En el host, abre el Bloc de notas y pega: **no debe aparecer** (pega algo que t�
 Esta prueba solo exige pegar; no escribe nada en tu portapapeles. Si apareciera el marcador, cierra el sandbox y no
 continúes: la redirección no está desactivada.
 
-## Qué prueban los diez casos (todos con datos sintéticos `NXFT-…`)
+## Qué prueban los doce casos (todos con datos sintéticos `NXFT-…`)
 T01 captura de texto · T02 imagen sintética · T03 duplicados · T04 atajo global abre/cierra y devuelve el foco ·
 T05 búsqueda en el historial y pegado en otra aplicación (ventana Tk que registra su contenido) · T06 foco tras pegar ·
 T07 Ctrl+V del Stack con tres elementos en orden FIFO · T08 persistencia tras reiniciar · T09 conflicto de atajo global
-al arrancar · T10 cierre forzado y reinicio (integridad de SQLite).
+al arrancar · T10 cierre forzado y reinicio (integridad de SQLite) · T11 inicio con Windows en el registro real **del sandbox** (desactivado
+en instalación nueva, se activa y desactiva) · T12 cierre limpio desde el menú de la bandeja (proceso termina, sin `-wal/-shm`, atajo liberado).
 Un caso que no puede ejecutarse queda `BLOCKED`, nunca `PASS`.
 
 ## Posibles bloqueos (documentados, sin rebajar protecciones)

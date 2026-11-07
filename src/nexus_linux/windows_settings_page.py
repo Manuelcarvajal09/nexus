@@ -241,6 +241,17 @@ class SettingsPage(QWidget):
         body.addWidget(self.capture_toggle, alignment=Qt.AlignmentFlag.AlignLeft)
         body.addWidget(self._sub("En pausa, Nexus no guarda nada nuevo en el historial. Lo ya guardado no cambia."))
 
+        # -- start with Windows (off by default) ----------------------------
+        body.addSpacing(windows_design.INTERNAL_GAP)
+        body.addWidget(self._heading("Inicio"))
+        self.autostart_toggle = QPushButton()
+        self.autostart_toggle.setObjectName("autostartToggle")
+        self.autostart_toggle.setCheckable(True)
+        self.autostart_toggle.toggled.connect(self._autostart_toggled)
+        body.addWidget(self.autostart_toggle, alignment=Qt.AlignmentFlag.AlignLeft)
+        self.autostart_hint = self._sub("Nexus empieza al iniciar sesión en Windows. Solo para tu usuario; puedes desactivarlo cuando quieras.")
+        body.addWidget(self.autostart_hint)
+
         # -- appearance -----------------------------------------------------
         body.addSpacing(windows_design.INTERNAL_GAP)
         body.addWidget(self._heading("Apariencia"))
@@ -291,8 +302,28 @@ class SettingsPage(QWidget):
         self.capture_toggle.setChecked(not paused)
         self.capture_toggle.blockSignals(False)
         self._sync_capture_text()
+        self._sync_autostart()
         self._sync_optical()
         self._after_change()
+
+    AUTOSTART_HINT = "Nexus empieza al iniciar sesión en Windows. Solo para tu usuario; puedes desactivarlo cuando quieras."
+
+    def _sync_autostart(self):
+        available = hasattr(self.backend, "autostart_enabled")
+        self.autostart_toggle.setVisible(available)
+        self.autostart_hint.setVisible(available)
+        if available:
+            self.autostart_toggle.blockSignals(True)
+            self.autostart_toggle.setChecked(bool(self.backend.autostart_enabled()))
+            self.autostart_toggle.blockSignals(False)
+            self.autostart_toggle.setText("Inicio con Windows activado" if self.autostart_toggle.isChecked()
+                                          else "Inicio con Windows desactivado")
+            self.autostart_toggle.setAccessibleName(self.autostart_toggle.text())
+
+    def _autostart_toggled(self, active):
+        problem = self.backend.set_autostart(active)
+        self.autostart_hint.setText(problem or self.AUTOSTART_HINT)
+        self._sync_autostart()      # on failure the toggle goes back to the real state
 
     def _sync_optical(self):
         available = hasattr(self.backend, "glass_optical")

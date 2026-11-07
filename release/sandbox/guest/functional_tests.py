@@ -35,6 +35,8 @@ TESTS = [
     ("T08", "Persistencia tras reiniciar Nexus"),
     ("T09", "Recuperación: conflicto de atajo global al arrancar"),
     ("T10", "Recuperación: cierre forzado y reinicio (integridad de la base)"),
+    ("T11", "Inicio con Windows: desactivado en instalación nueva; se activa y desactiva (registro HKCU real del sandbox)"),
+    ("T12", "Cierre limpio desde el menú de la bandeja (salida ordenada, base cerrada, atajos liberados)"),
 ]
 
 
@@ -221,7 +223,7 @@ class Run:
         self.start_target()
         self.start_nexus()
         pids = nexus_pids()
-        steps = [self.t01, self.t02, self.t03, self.t04, self.t05, self.t07, self.t08, self.t09, self.t10]
+        steps = [self.t01, self.t02, self.t03, self.t04, self.t05, self.t07, self.t08, self.t09, self.t10, self.t11, self.t12]
         for step in steps:
             tid = step.__name__.upper()
             try:
@@ -339,6 +341,71 @@ class Run:
         self.start_nexus()
         alive = bool(nexus_pids())
         self.record("T10", "PASS" if integrity == "ok" and alive else "FAIL", f"integrity={integrity} rows={count} restarted={alive}")
+
+
+    # ---- autostart (real HKCU Run key of the SANDBOX profile)
+    def run_key(self):
+        import winreg
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
+                return str(winreg.QueryValueEx(key, "Nexus")[0])
+        except FileNotFoundError:
+            return None
+
+    def installed_python(self):
+        state = json.loads(Path(r"C:\Nexus-RC1\current.json").read_text(encoding="utf-8-sig"))
+        return Path(r"C:\Nexus-RC1\versions") / state["current"] / "venv" / "Scripts" / "python.exe"
+
+    def t11(self, pids):
+        absent_at_start = self.run_key() is None
+        env = {k: v for k, v in os.environ.items() if k != "NEXUS_SANDBOX"}
+
+        def call(code):
+            return subprocess.run([str(self.installed_python()), "-c", code], capture_output=True, text=True, env=env, timeout=60)
+        on = call("from nexus_linux import windows_autostart as a; print(a.set_enabled(True))")
+        value = self.run_key()
+        points_ok = bool(value) and "pythonw.exe" in value and "nexus_linux.windows_app" in value and r"C:\Nexus-RC1" in value
+        off = call("from nexus_linux import windows_autostart as a; print(a.set_enabled(False))")
+        absent_after = self.run_key() is None
+        self.record("T11", "PASS" if absent_at_start and points_ok and absent_after else "FAIL",
+                    f"absent_on_fresh_install={absent_at_start} enabled_points_at_installed_pythonw={points_ok} "
+                    f"removed_on_disable={absent_after} (on={on.stdout.strip()} off={off.stdout.strip()})")
+
+    # ---- clean quit from the tray menu (UI Automation; BLOCKED, never PASS, if the icon cannot be reached)
+    def t12(self, pids):
+        if not nexus_pids():
+            self.start_nexus()
+        pids = nexus_pids()
+        script = r"""
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+$cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, 'Nexus')
+$item = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+if (-not $item) { Write-Output 'NOTFOUND'; exit 3 }
+$r = $item.Current.BoundingRectangle
+Write-Output ("{0} {1}" -f [int]($r.X + $r.Width/2), [int]($r.Y + $r.Height/2))
+"""
+        found = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True, timeout=60)
+        if "NOTFOUND" in found.stdout or not found.stdout.strip():
+            raise Blocked("the Nexus tray icon is not reachable through UI Automation (it may be in the hidden-icons flyout)")
+        x, y = (int(v) for v in found.stdout.split()[:2])
+        user32.SetCursorPos(x, y)
+        time.sleep(0.2)
+        user32.mouse_event(0x0008, 0, 0, 0, 0)
+        user32.mouse_event(0x0010, 0, 0, 0, 0)          # right click on the tray icon
+        if not wait_for(lambda: len(visible_windows_of(pids)) >= 1, 4):
+            raise Blocked("the tray menu did not open")
+        key(0x26)
+        key(0x26, up=True)                              # Up arrow: the last entry of the menu is "Salir de Nexus"
+        time.sleep(0.2)
+        chord("ENTER")
+        gone = wait_for(lambda: not nexus_pids(), 15)
+        leftovers = list(self.db.parent.glob("nexus.sqlite-*"))
+        hotkey_free = bool(user32.RegisterHotKey(None, 99, 0x4002 | 0x0004, 0x56))
+        if hotkey_free:
+            user32.UnregisterHotKey(None, 99)
+        self.record("T12", "PASS" if gone and not leftovers and hotkey_free else "FAIL",
+                    f"process_exited={bool(gone)} no_wal_shm_left={not leftovers} global_hotkey_released={hotkey_free}")
 
     def finish(self):
         self.kill_nexus()

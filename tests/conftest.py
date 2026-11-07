@@ -55,6 +55,30 @@ def isolate_global_input_state(monkeypatch):
     yield
 
 
+class FakeRunKey:
+    """In-memory stand-in for HKCU\...\Run: tests must never read or write the real registry."""
+
+    def __init__(self):
+        self.values = {}
+
+    def read(self, name):
+        return self.values.get(name)
+
+    def write(self, name, value):
+        self.values[name] = value
+
+    def delete(self, name):
+        return self.values.pop(name, None) is not None
+
+
+@pytest.fixture(autouse=True)
+def fake_autostart_registry(monkeypatch):
+    from nexus_linux import windows_autostart
+    fake = FakeRunKey()
+    monkeypatch.setattr(windows_autostart, "default_registry", lambda: fake)
+    yield fake
+
+
 class FakePasteService:
     def __init__(self, fail_write: bool = False, fail_paste: bool = False):
         self.written: list = []

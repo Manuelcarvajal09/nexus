@@ -125,6 +125,26 @@ def main() -> int:
         return (startup.exists(), startup.stat().st_mtime if startup.exists() else None)
 
     startup_before = startup_state()
+
+    def run_key_state():
+        """Names and values of the user's HKCU Run entries (read only): they must be identical afterwards."""
+        import winreg
+        values = {}
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
+                index = 0
+                while True:
+                    try:
+                        name, value, _kind = winreg.EnumValue(key, index)
+                        values[name] = value
+                        index += 1
+                    except OSError:
+                        break
+        except FileNotFoundError:
+            pass
+        return values
+
+    run_before = run_key_state()
     manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
     v1 = manifest["version"]
     print(f"work folder: {work}\npackage: {package.name}  version {v1}  commit {manifest['commit'][:12]}")
@@ -212,6 +232,8 @@ def main() -> int:
         acc.kill(mine_now)
         time.sleep(1)
         real_after = {p["pid"] for p in acc.list_nexus_processes()}
+        check("your Windows start-up (HKCU Run) entries are identical after the whole lifecycle", run_key_state() == run_before,
+              f"{len(run_before)} entries")
         check("your own Nexus processes were never touched (same PIDs before/after)", real_before == real_after, f"{sorted(real_before)} -> {sorted(real_after)}")
         if not args.keep:
             shutil.rmtree(work, ignore_errors=True)

@@ -16,7 +16,8 @@ Safety rules
   * --root is mandatory. Unless it lives under the system temp folder, --allow-real-install is required.
   * The package is verified (SHA256SUMS, wheel RECORD, pinned wheelhouse) BEFORE anything is created.
   * Dependencies come only from the package's wheelhouse: pip runs with --no-index --require-hashes.
-  * Install never starts the app, never touches Startup/Start Menu/taskbar and never writes user data.
+  * Install never starts the app, never creates a start-with-Windows entry, never touches Start Menu/taskbar and
+    never writes user data. If the user turned start-with-Windows ON, upgrade/rollback keep it ON (re-pointed).
   * Upgrade refuses while a Nexus of this root is running, and (with --data-dir) first takes a verified
     SQLite backup using the online backup API.
   * Uninstall removes only ROOT; user data is kept unless --remove-data DATA --yes is also given.
@@ -41,6 +42,64 @@ MARKER = ".nexus-rc-install"
 
 class ManageError(Exception):
     pass
+
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_VALUE = "Nexus"
+
+
+class RunKey:
+    """Per-user Run key (the same entry the app's Configuración › Inicio switch manages)."""
+
+    def read(self, name):
+        import winreg
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ) as key:
+                return str(winreg.QueryValueEx(key, name)[0])
+        except (FileNotFoundError, OSError):
+            return None
+
+    def write(self, name, value):
+        import winreg
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+
+    def delete(self, name):
+        import winreg
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.DeleteValue(key, name)
+            return True
+        except FileNotFoundError:
+            return False
+
+
+def _points_into(command, root: Path) -> bool:
+    return bool(command) and str(root.resolve()).lower() in command.lower()
+
+
+def follow_autostart(root: Path, version: str, registry=None, log=print) -> str:
+    """If the user turned "start with Windows" ON and the entry belongs to THIS install root, point it at the
+    version that is now current (upgrades and rollbacks keep the choice). Never creates an entry, never touches
+    an entry of another program or install, and does nothing when the choice is OFF (the default)."""
+    registry = registry or RunKey()
+    current = registry.read(RUN_VALUE)
+    if not _points_into(current, root):
+        return "untouched"
+    pythonw = root / "versions" / version / "venv" / "Scripts" / "pythonw.exe"
+    registry.write(RUN_VALUE, f'"{pythonw}" -m nexus_linux.windows_app')
+    log(f"start-with-Windows was ON: now points at {version}")
+    return "re-pointed"
+
+
+def drop_autostart(root: Path, registry=None, log=print) -> str:
+    """On uninstall: remove the Run entry only if it points into the root being removed (no dangling entry)."""
+    registry = registry or RunKey()
+    if _points_into(registry.read(RUN_VALUE), root):
+        registry.delete(RUN_VALUE)
+        log("removed the start-with-Windows entry that pointed into the removed install")
+        return "removed"
+    return "untouched"
 
 
 def _import_verify(package: Path):
@@ -100,7 +159,7 @@ def nexus_running_from(root: Path, run=real_run) -> list[str]:
 
 
 def install(package: Path, root: Path, data_dir: Path | None = None, python: str | None = None,
-            run=real_run, running=nexus_running_from, log=print) -> dict:
+            run=real_run, running=nexus_running_from, log=print, registry=None) -> dict:
     package = Path(package).resolve()
     verify = _import_verify(package)
     for note in verify.verify_package(package):
@@ -167,11 +226,12 @@ def install(package: Path, root: Path, data_dir: Path | None = None, python: str
     state = {"current": version, "previous": previous}
     write_state(root, state)
     launcher = write_launcher(root, version)
+    follow_autostart(root, version, registry, log)
     log(f"installed {version} -> {target}\nlauncher: {launcher}\nuser data untouched (lives outside ROOT)")
     return state
 
 
-def rollback(root: Path, to: str | None = None, running=nexus_running_from, log=print) -> dict:
+def rollback(root: Path, to: str | None = None, running=nexus_running_from, log=print, registry=None) -> dict:
     """Switch the launcher to an older version (default: the previously current one).
 
     Versions stay on disk, so `--to <newer>` switches forward again. The data folder is never modified."""
@@ -191,11 +251,12 @@ def rollback(root: Path, to: str | None = None, running=nexus_running_from, log=
     state = {"current": target, "previous": previous}
     write_state(root, state)
     write_launcher(root, target)
+    follow_autostart(root, target, registry, log)
     log(f"switched: current is now {target}; the data folder was not modified")
     return state
 
 
-def uninstall(root: Path, remove_data: Path | None = None, yes: bool = False, running=nexus_running_from, log=print) -> None:
+def uninstall(root: Path, remove_data: Path | None = None, yes: bool = False, running=nexus_running_from, log=print, registry=None) -> None:
     if not (root / MARKER).exists():
         raise ManageError(f"{root} has no {MARKER}: refusing to delete a folder this tool did not create")
     if running(root):
@@ -205,6 +266,7 @@ def uninstall(root: Path, remove_data: Path | None = None, yes: bool = False, ru
             raise ManageError("--remove-data needs --yes")
         if not (Path(remove_data) / "data" / "nexus.sqlite").exists() and not (Path(remove_data) / "config").exists():
             raise ManageError(f"{remove_data} does not look like a Nexus data folder")
+    drop_autostart(root, registry, log)
     shutil.rmtree(root)
     log(f"removed {root}")
     if remove_data is not None:
