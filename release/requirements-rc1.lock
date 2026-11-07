@@ -1,0 +1,8 @@
+# Pinned runtime dependencies of Nexus Windows RC1 (Windows x64, CPython 3.11).
+# Hashes are PyPI's own digests (pypi.org JSON API, checked 2026-11-06) for the win_amd64 wheels.
+# Install with:  pip install --no-index --find-links wheelhouse --require-hashes -r requirements-rc1.lock
+
+PySide6-Essentials==6.12.0 \
+    --hash=sha256:c9a95102aa23c1f86516a30d5a9be37552d324eee7e567eb7508973f1218cb42
+shiboken6==6.12.0 \
+    --hash=sha256:a1906cb8116869178c64b6bab52623bbc8b4ceed7b30bfc3c9aa0f6e67f6438e

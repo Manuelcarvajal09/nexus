@@ -1,0 +1,44 @@
+<!--
+  Nexus Windows RC1 - Windows Sandbox configuration TEMPLATE.
+  Do not open this file directly: run  python tools/rc1_sandbox_prepare.py  to generate nexus-rc1.wsb
+  with the absolute host paths filled in (and to verify that every protection below is present).
+
+  Protections (each one is checked by the generator and by tests/test_rc1_sandbox.py):
+    * ClipboardRedirection Disable : the sandbox clipboard is NOT shared with the host (either direction)
+    * Networking Disable           : no network at all; dependencies come from the offline wheelhouse
+    * Repository mapped ReadOnly   : the guest cannot modify the host repository or the RC package
+    * Host Python mapped ReadOnly  : only the interpreter folder, read-only
+    * Only ONE writable folder     : an empty results folder that receives logs/reports
+    * No audio/video/printer redirection, ProtectedClient on
+    * Everything else (data, settings, history) lives in the sandbox's own disposable profile
+-->
+<Configuration>
+  <VGpu>Enable</VGpu>
+  <Networking>Disable</Networking>
+  <ClipboardRedirection>Disable</ClipboardRedirection>
+  <AudioInput>Disable</AudioInput>
+  <VideoInput>Disable</VideoInput>
+  <PrinterRedirection>Disable</PrinterRedirection>
+  <ProtectedClient>Enable</ProtectedClient>
+  <MemoryInMB>4096</MemoryInMB>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>@REPO@</HostFolder>
+      <SandboxFolder>C:\Repo</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+    <MappedFolder>
+      <HostFolder>@PYTHON@</HostFolder>
+      <SandboxFolder>C:\HostPython</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+    <MappedFolder>
+      <HostFolder>@RESULTS@</HostFolder>
+      <SandboxFolder>C:\Results</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Repo\release\sandbox\guest\bootstrap.ps1</Command>
+  </LogonCommand>
+</Configuration>

@@ -99,8 +99,9 @@ else:
     raise AssertionError("Storage was not closed")
 print(json.dumps(events))
 '''
-    env = {**os.environ, "QT_QPA_PLATFORM": qt_platform, "NEXUS_OPEN_ON_START": "0"}
     root = Path(__file__).resolve().parents[1]
+    # The child must not rely on an editable install: it imports the code under test from src/.
+    env = {**os.environ, "QT_QPA_PLATFORM": qt_platform, "NEXUS_OPEN_ON_START": "0", "PYTHONPATH": str(root / "src")}
     completed = subprocess.run([sys.executable, "-X", "faulthandler", "-c", script, str(tmp_path)],
         cwd=root, env=env, capture_output=True, text=True, timeout=30)
     assert completed.returncode == 0, completed.stdout + completed.stderr

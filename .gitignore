@@ -13,3 +13,6 @@ capturas-entrega-*/
 *.lnk
 backups/
 settings.json
+
+# Release-candidate build output (generated, never versioned)
+dist-rc1/
