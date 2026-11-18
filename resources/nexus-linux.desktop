@@ -2,7 +2,7 @@
 Type=Application
 Name=Nexus
 Comment=Gestor de portapapeles
-Exec=__INSTALL_DIR__/.venv/bin/nexus-linux
+Exec=__NEXUS_LAUNCHER__ panel
 Icon=__INSTALL_DIR__/resources/nexus-icon.png
 Terminal=false
 Categories=Utility;

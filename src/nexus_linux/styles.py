@@ -15,7 +15,8 @@ from the tray menu (see app.py); qss() is applied at the QApplication level
 so every window updates the instant it changes, no per-widget bookkeeping."""
 
 import json
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
@@ -108,7 +109,21 @@ PRESETS: dict[str, Theme] = {
     ),
 }
 
-DEFAULT_THEME = "midnight_teal"
+# Keep all original palettes. Glass is an opaque, readable Linux adaptation:
+# compositor blur is optional, never required for contrast.
+PRESETS["liquid_glass"] = replace(PRESETS["midnight_teal"], key="liquid_glass",
+    display_name="Liquid Glass", bg="#101824", bg_elevated="#1B2838",
+    card_bg="#243244", card_bg_hover="#304258", accent="#82C7FF",
+    secondary="#B8DCFF", text_primary="#F7FAFF", text_secondary="#C0CBD8", glow=False)
+PRESETS["light"] = replace(PRESETS["minimalist"], key="light", display_name="Claro",
+    bg="#F5F7FA", bg_elevated="#FFFFFF", card_bg="#FFFFFF", card_bg_hover="#E8EEF8",
+    card_border="#D3DAE5", card_border_hover="#8CA2C2", accent="#255BC7",
+    accent_dim="#E0E9FA", accent_ink="#FFFFFF", secondary="#365A91",
+    text_primary="#172338", text_secondary="#4E6078", text_tertiary="#627086", danger="#B52B40")
+PRESETS["dark"] = replace(PRESETS["minimalist"], key="dark", display_name="Oscuro")
+PRESETS["auto"] = replace(PRESETS["midnight_teal"], key="auto", display_name="Automático · Caelestia")
+
+DEFAULT_THEME = "auto"
 _THEME_FILE = None  # resolved lazily so tests/imports don't touch disk
 
 
@@ -124,7 +139,8 @@ def _load_theme_key() -> str:
     f = _theme_file()
     if f.exists():
         try:
-            key = json.loads(f.read_text()).get("theme")
+            value = json.loads(f.read_text())
+            key = value.get("theme") if isinstance(value, dict) else None
             if key in PRESETS:
                 return key
         except (json.JSONDecodeError, OSError):
@@ -145,15 +161,19 @@ def set_active_theme(key: str) -> None:
         return
     _active_key = key
     try:
-        _theme_file().write_text(json.dumps({"theme": key}))
+        target = _theme_file()
+        temp = target.with_suffix(".tmp")
+        temp.write_text(json.dumps({"theme": key}))
+        temp.chmod(0o600)
+        temp.replace(target)
     except OSError:
         pass
 
 
 def theme_choices() -> list[tuple[str, str]]:
     """(key, display_name) pairs in a stable, deliberate order."""
-    order = ["midnight_teal", "minimalist", "storem", "tech_neon"]
-    return [(k, PRESETS[k].display_name) for k in order]
+    order = ["auto", "light", "dark", "liquid_glass", "midnight_teal", "minimalist", "storem", "tech_neon"]
+    return [(k, PRESETS[k].display_name) for k in order + (["caelestia"] if "caelestia" in PRESETS else [])]
 
 
 # -- Back-compat module-level constants (kept for callers not yet migrated to
@@ -167,6 +187,16 @@ TEXT_SECONDARY = ""
 TEXT_TERTIARY = ""
 
 RADIUS_BADGE = 17  # half of row_widget.BADGE_SIZE (34) -- a true circle chip
+
+
+def colour(value: str) -> QColor:
+    """QSS rgba values are not CSS strings accepted by QColor itself."""
+    match = re.fullmatch(r"rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)", value)
+    if not match:
+        return QColor(value)
+    red, green, blue, alpha = match.groups()
+    alpha = float(alpha)
+    return QColor(int(red), int(green), int(blue), round(alpha * 255 if alpha <= 1 else alpha))
 
 
 def qss() -> str:
@@ -200,7 +230,7 @@ QLabel#title {{
 
 QLabel#subtitle {{
     color: {t.text_secondary};
-    font-size: 11.5px;
+    font-size: 12px;
 }}
 
 QLabel#rowTitle {{
@@ -212,7 +242,7 @@ QLabel#rowTitle {{
 
 QLabel#rowMeta {{
     color: {t.text_tertiary};
-    font-size: 10.5px;
+    font-size: 12px;
     background: transparent;
 }}
 
@@ -423,7 +453,7 @@ QLabel#badge {{
     color: {t.accent};
     border-radius: 7px;
     padding: 2px 8px;
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 600;
 }}
 
@@ -439,7 +469,7 @@ QLabel#badgeCompact {{
     color: {t.accent};
     border-radius: 6px;
     padding: 0px 6px;
-    font-size: 9.5px;
+    font-size: 11px;
     font-weight: 600;
 }}
 
@@ -453,7 +483,7 @@ QPushButton#pinboardChipCompact {{
     border: none;
     color: {t.text_secondary};
     font-weight: 500;
-    font-size: 10.5px;
+    font-size: 12px;
     padding: 2px 8px;
 }}
 
@@ -473,7 +503,7 @@ QPushButton#expandToggle {{
     border: 1px solid {t.card_border};
     border-radius: {t.radius_chip}px;
     color: {t.text_secondary};
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
     padding: 2px 7px;
 }}

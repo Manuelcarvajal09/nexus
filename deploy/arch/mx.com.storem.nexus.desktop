@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Nexus
+Comment=Historial, Pinboards y Stack del portapapeles
+Exec="/home/manuel/.local/bin/nexus" panel
+Icon=/home/manuel/Projects/Nexus/linux/resources/nexus-icon.png
+Terminal=false
+Categories=Utility;
+StartupNotify=false

@@ -166,9 +166,10 @@ def calculate_panel_geometry(
     abs_max = _ABSOLUTE_MAX_SHELF_WIDTH.get(mode)
     if abs_max is not None:
         width = min(width, abs_max)
-    width = max(1, min(width, available_width))
+    width = max(1, min(width, (960 if mode is ResponsiveMode.STANDARD else 1200 if mode is ResponsiveMode.ULTRAWIDE else 1100), max(1, available_width - 64)))
     x = available_x + (available_width - width) // 2
-    y = available_y + available_height - panel_height
+    panel_height = min(panel_height, max(1, available_height - 64))
+    y = available_y + available_height - panel_height - 32
 
     cols = max(1, width // CARD_SLOT_WIDTH)
     rows_hint = 1

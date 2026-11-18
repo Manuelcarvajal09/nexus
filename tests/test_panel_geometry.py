@@ -72,7 +72,7 @@ class TestCalculatePanelGeometryInvariants:
 
     def test_panel_is_anchored_to_the_bottom_edge(self, name, width, height):
         geo = calculate_panel_geometry(0, 0, width, height)
-        assert geo.y + geo.height == height
+        assert geo.y + geo.height == height - 32
 
     def test_panel_respects_a_nonzero_screen_origin(self, name, width, height):
         # A secondary monitor to the right of the primary has origin_x > 0
@@ -81,7 +81,7 @@ class TestCalculatePanelGeometryInvariants:
         origin_x, origin_y = 1920, 0
         geo = calculate_panel_geometry(origin_x, origin_y, width, height)
         assert geo.x >= origin_x
-        assert geo.y + geo.height == origin_y + height
+        assert geo.y + geo.height == origin_y + height - 32
 
     def test_dimensions_are_positive(self, name, width, height):
         geo = calculate_panel_geometry(0, 0, width, height)
@@ -231,7 +231,7 @@ class TestExpandedView:
 
     def test_expanded_still_anchored_to_bottom_edge(self):
         geo = calculate_panel_geometry(0, 0, 1920, 1080, chrome_height=90, expanded=True)
-        assert geo.y + geo.height == 1080
+        assert geo.y + geo.height == 1080 - 32
 
     def test_expanded_never_taller_than_available_height_on_a_short_screen(self):
         geo = calculate_panel_geometry(0, 0, 1366, 768, chrome_height=90, expanded=True)

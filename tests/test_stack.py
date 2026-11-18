@@ -75,7 +75,7 @@ class TestBasicSequencing:
 
 
 class TestManualAdvanceButton:
-    def test_paste_next_and_advance_synthesizes_and_consumes(self, storage, paste_service):
+    def test_dispatch_waits_for_explicit_delivery_confirmation(self, storage, paste_service):
         stack = ClipStack(storage=storage, paste_service=paste_service)
         a, b = _text(storage, "A"), _text(storage, "B")
         stack.add(a)
@@ -84,6 +84,8 @@ class TestManualAdvanceButton:
         returned = stack.paste_next_and_advance()
         assert returned.id == a.id
         assert paste_service.paste_count == 1
+        assert [i.id for i in stack.items()] == [a.id, b.id]
+        assert stack.confirm_pending().id == a.id
         assert [i.id for i in stack.items()] == [b.id]
         # arm_next() is called for both the initial add() and each advance,
         # so B (the new head) must be the most recent thing written.
@@ -156,8 +158,8 @@ class TestRemovalAndClear:
 
         stack.remove_persistent(b.id)
         assert [i.id for i in stack.items()] == [a.id, c.id]
-        # remove_persistent also deletes the underlying history row.
-        assert storage.get(b.id) is None
+        # Removing from Stack preserves historical data.
+        assert storage.get(b.id) is not None
 
     def test_removing_unknown_id_is_a_safe_noop(self, storage, paste_service):
         stack = ClipStack(storage=storage, paste_service=paste_service)
@@ -215,21 +217,26 @@ class TestClipboardWriteFailureResilience:
         a = _text(storage, "A")
         with caplog.at_level(logging.WARNING, logger="nexus.stack"):
             stack.add(a)
+            stack.arm_next()
         assert any("no se pudo escribir" in r.message.lower() for r in caplog.records)
 
-    def test_failed_synthetic_paste_does_not_prevent_manual_advance(self, storage, make_paste_service):
+    def test_failed_synthetic_paste_preserves_queue(self, storage, make_paste_service):
         flaky = make_paste_service(fail_paste=True)
         stack = ClipStack(storage=storage, paste_service=flaky)
         a, b = _text(storage, "A"), _text(storage, "B")
-        stack.add(a)
-        stack.add(b)
+        stack.add(a); stack.add(b)
+        assert stack.paste_next_and_advance() is None
+        assert stack.confirm_pending() is None
+        assert [i.id for i in stack.items()] == [a.id, b.id]
 
-        # Even though ydotool "failed" (e.g. ydotoold not running), the item
-        # was still copied to the clipboard -- the user can paste it by hand,
-        # so the Stack must still advance rather than getting stuck on A.
-        returned = stack.paste_next_and_advance()
-        assert returned.id == a.id
-        assert [i.id for i in stack.items()] == [b.id]
+    def test_failed_write_never_dispatches_or_consumes(self, storage, make_paste_service):
+        flaky = make_paste_service(fail_write=True)
+        stack = ClipStack(storage, flaky)
+        stack.add(_text(storage, "keep me"))
+        assert stack.paste_next_and_advance() is None
+        assert flaky.paste_count == 0
+        assert len(stack.items()) == 1
+
 
 
 class TestCrashRecovery:

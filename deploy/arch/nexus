@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /home/manuel/.local/share/nexus-runtime/venv/bin/python -m nexus_linux.app "$@"

@@ -1,0 +1,26 @@
+Capture checks, 2026-10-08. No live-session PASS.
+
+CHECK 0
+{"database": "/home/manuel/.local/share/nexus/production/nexus.sqlite", "count": 0, "previously_validated": false, "capture_enabled": false, "retention_in_app": false}
+{"counts_by_kind": {}, "stack_pending": 0, "latest": null}
+
+
+CHECK 1
+VALIDACIÓN FALLIDA: Command '['systemctl', '--user', 'show', 'nexus.service', '-p', 'ActiveState', '-p', 'Environment', '-p', 'EnvironmentFiles']' returned non-zero exit status 1.
+
+
+CHECK 2
+BLOQUEADO: systemctl: Failed to connect to user scope bus via local transport: Operation not permitted (consider using --machine=<user>@.host --user to connect to bus of other user)
+
+
+CHECK 3
+wl-clipboard 2.3.0
+Copyright (C) 2018-2026 Sergey Bugaev
+License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Failed to connect to a Wayland server: Operation not permitted
+Note: WAYLAND_DISPLAY is set to wayland-1
+Note: XDG_RUNTIME_DIR is set to /run/user/1000
+Please check whether /run/user/1000/wayland-1 socket exists and is accessible.
+Couldn't set socket timeout (2)

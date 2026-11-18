@@ -1,7 +1,7 @@
 [project]
 name = "nexus-linux"
-version = "0.1.0"
-description = "Nexus clipboard manager, ported to Linux/KDE Plasma from the macOS Swift original"
+version = "1.0.0rc1"
+description = "Nexus clipboard manager, for Arch Linux, Hyprland and Caelestia"
 requires-python = ">=3.11"
 dependencies = [
     "PySide6>=6.7",

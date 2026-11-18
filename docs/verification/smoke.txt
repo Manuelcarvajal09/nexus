@@ -1,0 +1,7 @@
+2026-10-08 08:53:52,220 INFO nexus: Storage abierto en /tmp/nexus-1-audit/smoke/data/nexus.sqlite
+2026-10-08 08:53:52,283 INFO nexus: Stack: confirmación explícita de entrega; evdev no consume elementos.
+qt.core.qobject.connect: QObject::connect: No such signal QPlatformNativeInterface::systemTrayWindowChanged(QScreen*)
+2026-10-08 08:53:52,288 WARNING nexus.dbus_service: No se pudo registrar el objeto D-Bus /Nexus
+2026-10-08 08:53:52,288 INFO nexus: Hyprland: atajos externos por D-Bus; no se modifica ningún bind de Caelestia.
+2026-10-08 08:53:52,288 INFO nexus: Retención deshabilitada: ningún clip se elimina por edad.
+2026-10-08 08:53:52,288 INFO nexus: Nexus Linux iniciado

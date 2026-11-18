@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import paths
+from .settings import load_settings
 
 
 def normalize_for_search(text: str) -> str:
@@ -155,7 +156,7 @@ class Pinboard:
 
 
 class StorageService:
-    def __init__(self, db_path: Path = paths.DB_PATH):
+    def __init__(self, db_path: Path = paths.DB_PATH, *, allow_retention: bool | None = None):
         paths.ensure_dirs()
         # Kept for callers that need their own connection to the same file
         # on a different thread (sqlite3 connections are not thread-safe to
@@ -163,6 +164,9 @@ class StorageService:
         # StorageService(db_path=storage.db_path) rather than touching this
         # instance's self._conn from a worker thread).
         self.db_path = db_path
+        self.allow_retention = (
+            load_settings().allow_retention if allow_retention is None else allow_retention is True
+        )
         self._conn = sqlite3.connect(str(db_path))
         self._conn.execute("PRAGMA foreign_keys = ON")
         # WAL lets a future reader (backup, diagnostics) run concurrently with
@@ -274,7 +278,7 @@ class StorageService:
             )
             self._conn.commit()
 
-    def recent(self, limit: int = 200, query: str = "", pinboard_id: Optional[int] = None) -> list[ClipItem]:
+    def recent(self, limit: int = 200, query: str = "", pinboard_id: Optional[int] = None, kind: Optional[str] = None) -> list[ClipItem]:
         where = []
         params: list = []
         joins = ""
@@ -282,6 +286,9 @@ class StorageService:
             joins = "JOIN pinboard_items pi ON pi.item_id = clip_items.id"
             where.append("pi.pinboard_id = ?")
             params.append(pinboard_id)
+        if kind is not None:
+            where.append("kind = ?")
+            params.append(kind)
         if query:
             where.append("search_text LIKE ?")
             params.append(f"%{normalize_for_search(query)}%")
@@ -299,6 +306,10 @@ class StorageService:
         self._conn.commit()
 
     def purge_older_than(self, days: int) -> int:
+        if not self.allow_retention:
+            return 0
+        if type(days) is not int or days < 1:
+            raise ValueError("retention days must be a positive integer")
         cutoff = time.time() - days * 86400
         cur = self._conn.execute(
             """DELETE FROM clip_items WHERE updated_at < ? AND id NOT IN
@@ -310,7 +321,7 @@ class StorageService:
 
     # -- Nexus Stack session recovery --------------------------------------
 
-    def save_stack_state(self, item_ids: list[int], reversed_order: bool) -> None:
+    def save_stack_state(self, item_ids: list[int], reversed_order: bool, *, commit: bool = True) -> None:
         """Overwrites the persisted Stack session wholesale -- called after
         every ClipStack mutation (add/consume/remove/clear/reorder), so a
         crash between two mutations can only lose the DB write for the
@@ -325,7 +336,8 @@ class StorageService:
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             ("1" if reversed_order else "0",),
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
 
     def load_stack_state(self) -> tuple[list[int], bool]:
         rows = self._conn.execute(
@@ -399,6 +411,12 @@ class StorageService:
     def list_pinboards(self) -> list[Pinboard]:
         rows = self._conn.execute("SELECT * FROM pinboards ORDER BY sort_order, id").fetchall()
         return [self._row_to_pinboard(r) for r in rows]
+
+    def pinboard_counts(self) -> dict[int, int]:
+        """Collection metadata in one read; no schema change."""
+        return dict(self._conn.execute(
+            'SELECT pinboard_id, COUNT(*) FROM pinboard_items GROUP BY pinboard_id'
+        ).fetchall())
 
     def create_pinboard(self, name: str, color_hex: Optional[str] = None, emoji: Optional[str] = None) -> Pinboard:
         count = self._conn.execute("SELECT COUNT(*) FROM pinboards").fetchone()[0]

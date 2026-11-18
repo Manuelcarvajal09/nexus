@@ -79,9 +79,10 @@ class _FetchTask(QRunnable):
 class PreviewService(QObject):
     preview_ready = Signal(int, dict)  # item_id, cache-shaped preview dict
 
-    def __init__(self, storage: StorageService, parent=None):
+    def __init__(self, storage: StorageService, parent=None, *, allow_network: bool = True):
         super().__init__(parent)
         self._storage = storage
+        self._allow_network = allow_network
         self._pool = QThreadPool.globalInstance()
         self._inflight: set[str] = set()
 
@@ -102,6 +103,8 @@ class PreviewService(QObject):
             if cached.get("title"):
                 self._storage.enrich_search_text(item_id, cached["title"])
             return cached
+        if not self._allow_network:
+            return None
         if url in self._inflight:
             return None  # already being fetched for another card with the same URL
         self._inflight.add(url)

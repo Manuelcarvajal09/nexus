@@ -1,24 +1,13 @@
-"""UI for Nexus Stack: mirrors PasteStack.swift -- opens as a fresh, empty
-collection session; everything copied while it's open gets added (skipping
-same-session duplicates by content hash) and the next pending item stays
-armed on the clipboard. Ctrl+Shift+C is a pure show/hide toggle (see app.py);
-a real Ctrl+V anywhere consumes the head and advances -- on macOS via a
-global Accessibility key monitor, on Linux via evdev_stack_watcher.py when
-enabled (see MIGRATION_LINUX.md, "Stack secuencial"). The "Pegar siguiente"
-button stays as a manual fallback for when that watcher isn't running.
+"""Floating Stack surface. Visibility is independent of the collection session.
 
-Phase 2 ("Stack 2.0"): the head item now gets its own "NEXT" hero card,
-separate from the remaining-items list, so which item a real Ctrl+V is
-about to consume is obvious without reading position numbers. This file
-only changes *presentation* -- every mutation still goes through ClipStack
-(stack.py), whose state machine and the 30 tests pinning it down in
-tests/test_stack.py are untouched. The hero card is a plain ClipRowWidget
-with set_selected(True): that reuses the existing accent-bordered "selected"
-QSS treatment instead of inventing new styling for emphasis."""
+On Hyprland a temporary binding drives automatic dispatch with durable recovery.
+Sending a shortcut is not an application receipt; manual controls remain as a
+fallback when the temporary binding is paused or unavailable.
+"""
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSize, QTimer, Qt
+from PySide6.QtCore import QEvent, QSize, QTimer, Qt, QPropertyAnimation
 from PySide6.QtGui import QCursor, QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -29,12 +18,13 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
+    QGraphicsOpacityEffect,
 )
 
 from .paste_service import POST_HIDE_PASTE_DELAY_MS
 from .row_widget import ClipRowWidget
 from .stack import ClipStack
-from . import styles
+from . import styles, desktop, product_ui
 
 RESOURCES_DIR = Path(__file__).resolve().parent.parent.parent / "resources"
 # Kept in sync with timeline_window.DISMISS_DEBOUNCE_MS by convention, not
@@ -43,7 +33,7 @@ RESOURCES_DIR = Path(__file__).resolve().parent.parent.parent / "resources"
 DISMISS_DEBOUNCE_MS = 150
 
 
-class StackWindow(QWidget):
+class StackWindow(product_ui.Surface):
     def __init__(self, clip_stack: ClipStack, parent=None):
         super().__init__(parent)
         self._stack = clip_stack
@@ -53,13 +43,16 @@ class StackWindow(QWidget):
         self._dismiss_timer.setInterval(DISMISS_DEBOUNCE_MS)
         self._dismiss_timer.timeout.connect(self._dismiss_if_still_inactive)
 
+        product_ui.attach(self)
+        desktop.track(self)
         self.setWindowTitle("Nexus Stack")
         self.resize(320, 500)
-        self.setMinimumWidth(300)
+        self.setMinimumWidth(380)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
+        root.setContentsMargins(24, 20, 24, 16)
         root.setSpacing(10)
 
         header = QHBoxLayout()
@@ -73,7 +66,7 @@ class StackWindow(QWidget):
         header.addWidget(brand)
         title_box = QVBoxLayout()
         title_box.setSpacing(1)
-        title = QLabel("Nexus Stack")
+        title = product_ui.DragTitle("Nexus Stack")
         title.setObjectName("title")
         self._subtitle = QLabel("")
         self._subtitle.setObjectName("subtitle")
@@ -83,19 +76,23 @@ class StackWindow(QWidget):
         header.addStretch()
 
         self._order_btn = QPushButton()
-        self._order_btn.setFixedSize(36, 32)
+        self._order_btn.setFixedSize(72, 32)
         self._set_order_control()
         self._order_btn.clicked.connect(self._toggle_order)
         header.addWidget(self._order_btn)
+        close = product_ui.CloseButton(self)
+        close.setToolTip('Ocultar sin cancelar ni perder pendientes')
+        header.addWidget(close)
         root.addLayout(header)
 
-        next_label = QLabel("SIGUIENTE")
+        next_label = QLabel("01 · SIGUIENTE EN PEGAR")
         next_label.setObjectName("subtitle")
         root.addWidget(next_label)
 
         self._next_container = QVBoxLayout()
         self._next_container.setContentsMargins(0, 0, 0, 0)
         self._next_widget: ClipRowWidget | None = None
+        self._seen_sent_count = 0
         root.addLayout(self._next_container)
 
         self._remaining_label = QLabel("")
@@ -117,37 +114,64 @@ class StackWindow(QWidget):
         self._empty_label.setWordWrap(True)
         root.addWidget(self._empty_label)
 
-        hint = QLabel(
-            "Clic derecho en un elemento para eliminarlo del Stack. "
-            "Ctrl+V real consume y avanza al siguiente."
-        )
+        from .settings import load_settings
+        config = load_settings()
+        hint = QLabel("Captura desactivada" if not config.capture_enabled else
+                      "Copia con Ctrl+C. Prepara el siguiente, pega y confirma su entrega.")
+        self._hint = hint
         hint.setObjectName("subtitle")
         hint.setWordWrap(True)
         root.addWidget(hint)
 
         row1 = QHBoxLayout()
         row1.addStretch()
-        clear_btn = QPushButton("Vaciar Stack")
+        clear_btn = QPushButton("Cancelar sesión")
         clear_btn.setObjectName("flat")
-        clear_btn.clicked.connect(self._on_clear)
+        clear_btn.setToolTip('Finalizar captura y pegado; conservar pendientes para recuperar')
+        clear_btn.clicked.connect(self._cancel_session)
         row1.addWidget(clear_btn)
+        empty_btn = QPushButton('Vaciar pendientes')
+        empty_btn.clicked.connect(self._on_clear)
+        row1.addWidget(empty_btn)
         root.addLayout(row1)
 
-        self._paste_next_btn = QPushButton("📋 Pegar siguiente (manual)")
+        self._paste_next_btn = QPushButton("Enviar siguiente")
         self._paste_next_btn.setObjectName("primary")
         self._paste_next_btn.clicked.connect(self.advance)
         root.addWidget(self._paste_next_btn)
 
+        self._prepare_btn = QPushButton("Preparar para Ctrl+V")
+        self._prepare_btn.clicked.connect(self._prepare_manual)
+        root.addWidget(self._prepare_btn)
+        self._confirm_btn = QPushButton("Confirmar que se pegó")
+        self._confirm_btn.setToolTip("Confirma solo después de ver el contenido en la aplicación destino")
+        self._confirm_btn.clicked.connect(self._confirm_delivery)
+        root.addWidget(self._confirm_btn)
+        self.sequential = None
+        self._capture_paused = False
+        self._capture_btn = QPushButton('Pausar acumulación')
+        self._capture_btn.clicked.connect(self._toggle_capture)
+        root.addWidget(self._capture_btn)
+        self._pause_btn = QPushButton('Pausar pegado secuencial')
+        self._pause_btn.clicked.connect(self._toggle_sequential)
+        root.addWidget(self._pause_btn)
+        self._retry_btn = QPushButton('Reintentar pendiente')
+        self._retry_btn.setToolTip('Revisa primero el destino: una entrega incierta puede haberse insertado')
+        self._retry_btn.clicked.connect(self._retry_sequential)
+        root.addWidget(self._retry_btn)
+        self._restore_btn = QPushButton('Recuperar último enviado')
+        self._restore_btn.clicked.connect(self._restore_sequential)
+        root.addWidget(self._restore_btn)
         self.refresh()
 
     def is_collecting(self) -> bool:
-        return self.isVisible()
+        return self._stack.active and not self._capture_paused
 
     def has_pending_items(self) -> bool:
         return len(self._stack.items()) > 0
 
     def add_capture(self, item) -> None:
-        self._stack.add(item)  # dedup-by-hash + auto-arm handled in ClipStack
+        self._stack.add(item)  # Deduplicates and persists without clipboard writes.
         self.refresh()
 
     def refresh(self) -> None:
@@ -161,12 +185,13 @@ class StackWindow(QWidget):
         while self._next_container.count():
             child = self._next_container.takeAt(0)
             if child.widget():
+                child.widget().hide()
                 child.widget().deleteLater()
         self._next_widget = None
 
         if display_order:
             head = display_order[0]
-            next_row = ClipRowWidget(head)
+            next_row = ClipRowWidget(head, position=1)
             next_row.set_selected(True)  # reuses the accent-bordered QSS treatment for emphasis
             next_row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             next_row.customContextMenuRequested.connect(
@@ -176,6 +201,7 @@ class StackWindow(QWidget):
             self._next_widget = next_row
 
         remaining = display_order[1:]
+        self._list.blockSignals(True)
         self._list.clear()
         for position, item in enumerate(remaining, start=2):
             list_item = QListWidgetItem()
@@ -185,7 +211,33 @@ class StackWindow(QWidget):
             self._list.addItem(list_item)
             self._list.setItemWidget(list_item, row)
 
-        self._subtitle.setText(f"{count} elemento{'s' if count != 1 else ''} en total" if count else "Vacío")
+        self._list.blockSignals(False)
+        from .settings import load_settings
+        self._hint.setText("Captura desactivada" if not load_settings().capture_enabled else
+                           "Copia con Ctrl+C. Prepara, pega y confirma cada entrega.")
+        sequential = getattr(self, 'sequential', None)
+        if sequential:
+            self._pause_btn.show(); self._restore_btn.show()
+            self._hint.setText(sequential.error or ('Ctrl+V secuencial activo · avance por envío aceptado, sin acuse de aplicación.'
+                               if sequential.enabled else 'Pegado secuencial pausado · la captura de Stack continúa.'))
+            self._pause_btn.setText('Pausar pegado secuencial' if sequential.enabled else 'Reanudar pegado secuencial')
+            self._retry_btn.setVisible(sequential.blocked)
+            self._order_btn.setEnabled(not sequential.busy and not sequential.blocked)
+            self._paste_next_btn.setVisible(not sequential.enabled)
+            self._prepare_btn.setVisible(not sequential.enabled)
+            self._confirm_btn.setVisible(not sequential.enabled)
+            if sequential.sent_count != self._seen_sent_count and self._next_widget:
+                effect = QGraphicsOpacityEffect(self._next_widget)
+                self._next_widget.setGraphicsEffect(effect)
+                animation = QPropertyAnimation(effect, b'opacity', effect)
+                animation.setDuration(120)
+                animation.setStartValue(.35); animation.setEndValue(1.0)
+                animation.start()
+            self._seen_sent_count = sequential.sent_count
+        else:
+            self._pause_btn.hide(); self._retry_btn.hide(); self._restore_btn.hide()
+        self._subtitle.setText((f"{count} pendiente{'s' if count != 1 else ''}" if count else "Listo para acumular")
+                               + (" · Activo" if self._stack.active else " · Inactivo"))
 
         order_label = "FIFO" if not self._stack.reversed_order else "LIFO"
         self._remaining_label.setText(
@@ -196,6 +248,8 @@ class StackWindow(QWidget):
         self._list.setVisible(len(remaining) > 0)
         self._remaining_label.setVisible(count > 0)
         self._paste_next_btn.setEnabled(count > 0)
+        self._prepare_btn.setEnabled(count > 0)
+        self._confirm_btn.setEnabled(self._stack.pending_confirmation is not None)
 
     def _on_selection_changed(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
         if previous is not None:
@@ -221,6 +275,7 @@ class StackWindow(QWidget):
         technology, while the arrow makes the control legible at Stack's
         intentionally narrow utility-window size."""
         reversed_order = self._stack.reversed_order
+        self._order_btn.setText("LIFO" if reversed_order else "FIFO")
         # Use the theme's secondary accent explicitly. Tech Neon defines it
         # as its magenta neon; relying on the translucent default text color
         # can render a black icon with some Qt icon backends.
@@ -237,25 +292,23 @@ class StackWindow(QWidget):
         self._order_btn.setAccessibleName("Orden LIFO" if reversed_order else "Orden FIFO")
 
     def advance(self) -> None:
-        """Paste the current head into whichever window has focus (not
-        necessarily this one) and move to the next item.
-
-        Hides FIRST, defers the actual arm/synthesize/consume/re-arm
-        (ClipStack.paste_next_and_advance(), left completely untouched --
-        see stack.py) until after that hide has had time to take effect.
-        Synthesizing the Ctrl+V while this window is still active would
-        send it back into Nexus itself instead of the app the user meant to
-        paste into -- see paste_service.POST_HIDE_PASTE_DELAY_MS's
-        docstring for the live-measured delay this relies on. Also matches
-        the 'smart dismiss' philosophy: once the user has confirmed they're
-        pasting from the Stack, it should get out of the way immediately,
-        not just once it empties -- it reopens on the next Ctrl+Shift+C."""
-        self.fade_hide()
-        QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, self._do_advance)
+        # The exact remembered target is focused by PasteService. Keep Stack
+        # mapped while pending; successful dispatcher execution is not receipt.
+        self._do_advance()
 
     def _do_advance(self) -> None:
         self._stack.paste_next_and_advance()
         self.refresh()
+
+    def _prepare_manual(self) -> None:
+        self._stack.prepare_manual_paste()
+        self.refresh()
+
+    def _confirm_delivery(self) -> None:
+        item = self._stack.confirm_pending()
+        self.refresh()
+        if item is not None and not self.has_pending_items():
+            self.fade_hide()
 
     def _selected_item_id(self):
         current = self._list.currentItem()
@@ -283,8 +336,34 @@ class StackWindow(QWidget):
             self.refresh()
 
     def _on_clear(self) -> None:
+        if self.sequential:
+            self.sequential.pause()
         self._stack.clear()
         self.refresh()
+        self.fade_hide()
+
+    def _toggle_sequential(self):
+        if self.sequential:
+            self.sequential.pause() if self.sequential.enabled else self.sequential.enable()
+
+    def _toggle_capture(self):
+        self._capture_paused = not self._capture_paused
+        self._capture_btn.setText('Reanudar acumulación' if self._capture_paused else 'Pausar acumulación')
+
+    def _cancel_session(self):
+        if self.sequential:
+            self.sequential.pause()
+        self._stack.active = False
+        self.refresh()
+        self.fade_hide()
+
+    def _retry_sequential(self):
+        if self.sequential:
+            self.sequential.retry_pending()
+
+    def _restore_sequential(self):
+        if self.sequential:
+            self.sequential.restore_last()
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:
@@ -302,7 +381,7 @@ class StackWindow(QWidget):
         # Preserve the action at the smallest supported width without making
         # Stack gain a horizontal scrollbar just to show helper wording.
         self._paste_next_btn.setText(
-            "Pegar siguiente" if self.width() < 315 else "📋 Pegar siguiente (manual)"
+            "Enviar siguiente"
         )
         super().resizeEvent(event)
 
@@ -319,24 +398,17 @@ class StackWindow(QWidget):
         outputs (observed live on Erwin, likely a DPMS/screen-blank
         recovery hiccup); calling .availableGeometry() on None would crash
         instead of just not repositioning."""
-        screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
-        if screen is None:
-            return False
-        avail = screen.availableGeometry()
-        width = min(self.width(), avail.width())
-        height = min(self.height(), avail.height())
-        x = avail.x() + (avail.width() - width) // 2
-        y = avail.y() + (avail.height() - height) // 2
-        self.setGeometry(x, y, width, height)
-        return True
+        return desktop.restore(self, preferred=(400, 500))
 
     def show_and_focus(self) -> None:
+        self._stack.activate()
         self.refresh()
         self._reposition_to_active_screen()
         self._pending_activation = True
         self.show()
         self.raise_()
         self.activateWindow()
+        desktop.present(self)
         if self.isActiveWindow():
             # Some launches never fire another ActivationChange since the
             # state doesn't change (already active from a prior toggle) --
@@ -344,25 +416,14 @@ class StackWindow(QWidget):
             self._pending_activation = False
 
     def changeEvent(self, event) -> None:
-        if event.type() == QEvent.Type.ActivationChange:
-            if self.isActiveWindow():
-                self._pending_activation = False
-                self._dismiss_timer.stop()
-            elif not self._pending_activation and self.isVisible():
-                # Click-outside-to-dismiss, debounced -- same philosophy and
-                # same reasoning as TimelineWindow.changeEvent()/
-                # DISMISS_DEBOUNCE_MS (confirmed live: an undebounced version
-                # could self-hide on a single transient focus blip from
-                # unrelated background activity before the user's own next
-                # keypress arrived).
-                self._dismiss_timer.start()
+        # Stack remains mapped across focus/workspace changes.
         super().changeEvent(event)
 
     def _dismiss_if_still_inactive(self) -> None:
-        if not self.isActiveWindow() and self.isVisible():
-            self.fade_hide()
+        pass
 
     def fade_hide(self) -> None:
         # Not animated -- see MainWindow.fade_hide()'s comment and
         # MIGRATION_LINUX.md, "Animaciones".
+        desktop.save(self)
         self.hide()

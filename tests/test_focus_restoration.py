@@ -87,23 +87,22 @@ class TestMainWindowItemActivatedOrder:
 
 
 class TestStackWindowAdvanceOrder:
-    def test_hide_happens_before_paste_next_and_advance(self, qapp, storage, monkeypatch):
-        calls: list = []
-        clip_stack = ClipStack(storage=storage, paste_service=OrderTrackingPasteService(calls))
-        a, b = _text(storage, "A"), _text(storage, "B")
-        clip_stack.add(a)
-        clip_stack.add(b)
-        calls.clear()  # drop the arm_next() writes from add() above -- only advance() matters here
-
-        window = StackWindow(clip_stack=clip_stack)
-        monkeypatch.setattr(window, "fade_hide", lambda: calls.append("hide"))
-
+    def test_stack_stays_visible_until_delivery_confirmed(self, qapp, storage, monkeypatch):
+        calls = []
+        stack = ClipStack(storage, OrderTrackingPasteService(calls))
+        for text in ("A", "B"):
+            stack.add(_text(storage, text))
+        calls.clear()
+        window = StackWindow(stack)
+        window.show()
         window.advance()
-        # _do_advance (which calls paste_next_and_advance -> synthesize) is
-        # deferred; hide must already have happened and nothing else yet.
-        assert calls == ["hide"]
-
-        QTest.qWait(120)
-        assert calls[0] == "hide"
-        assert "synthesize" in calls
-        assert calls.index("hide") < calls.index("synthesize")
+        assert calls == ["write", "synthesize"]
+        assert window.isVisible()
+        assert len(stack.items()) == 2
+        window._confirm_delivery()
+        assert window.isVisible()
+        assert len(stack.items()) == 1
+        window.advance()
+        window._confirm_delivery()
+        assert not window.isVisible()
+        assert not stack.active
