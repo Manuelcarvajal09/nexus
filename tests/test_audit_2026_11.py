@@ -207,3 +207,25 @@ def test_large_images_encode_off_thread_and_keep_copy_order(qapp, storage, monke
             break
     assert [i.kind for i in captured] == ["image", "text"]
     assert QImage.fromData(captured[0].image_data, "PNG").size() == image.size()
+
+
+def test_paste_watcher_survives_hook_refresh_cycles(qapp, monkeypatch):
+    """Regression (v4/v5): the periodic re-install read MSG.hwnd (the field is hWnd),
+    killed the watcher thread after 15 s and stopped the Stack until restart."""
+    import sys
+    if sys.platform != "win32":
+        pytest.skip("Windows low-level hook")
+    monkeypatch.setattr(keyboard, "HOOK_REFRESH_MS", 40)
+    watcher = keyboard.WindowsPasteWatcher()
+    failures = []
+    watcher.hook_failed.connect(failures.append)
+    watcher.start(enabled=False)
+    try:
+        deadline = time.monotonic() + 0.4
+        while time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.02)
+        assert watcher._thread.is_alive() and watcher._hook and not failures
+    finally:
+        watcher.stop()
+    assert not watcher._thread.is_alive()

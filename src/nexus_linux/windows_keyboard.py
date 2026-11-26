@@ -139,8 +139,11 @@ class WindowsPasteWatcher(QObject):
             # periodically; the new hook goes in before the old one is removed.
             timer = user32.SetTimer(None, 0, HOOK_REFRESH_MS, None) if self._hook else 0
             while self._hook and not self._stopping.is_set() and user32.GetMessageW(ctypes.byref(message),None,0,0)>0:
-                if message.message == WM_TIMER and message.hwnd is None:
-                    self._refresh_hook(callback)
+                if message.message == WM_TIMER and not message.hWnd:   # wintypes.MSG spells it hWnd
+                    try:
+                        self._refresh_hook(callback)
+                    except Exception as exc:  # noqa: BLE001 - a refresh problem must never end the watcher
+                        logging.getLogger("nexus.keyboard").warning("paste_watcher.refresh_failed exception_type=%s", type(exc).__name__)
                     continue
                 user32.TranslateMessage(ctypes.byref(message)); user32.DispatchMessageW(ctypes.byref(message))
             if timer:
@@ -152,6 +155,7 @@ class WindowsPasteWatcher(QObject):
             self._v_down=False; self._request=None
             self._modifiers.clear()
             if unexpected_exit:
+                logging.getLogger("nexus.keyboard").warning("paste_watcher.unexpected_exit")
                 self.set_enabled(False)
                 self.hook_failed.emit("Stack detenido: el observador Ctrl+V se desconectó")
     def _refresh_hook(self, callback):
