@@ -5,7 +5,8 @@
 <h1 align="center">Nexus</h1>
 
 <p align="center">
-  <b>A fast, private clipboard manager for Windows: history, pinboards and sequential paste.</b><br>
+  <b>A fast, private clipboard manager: history, pinboards and sequential paste.</b><br>
+  Windows today, Linux in early access, macOS on the way.<br>
   Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd>, find anything you copied, paste it where you were.
 </p>
 
@@ -36,6 +37,7 @@ Windows' built-in clipboard history (<kbd>Win</kbd>+<kbd>V</kbd>) keeps 25 items
 - **Nexus Stack: sequential paste.** Copy A, B, C… then press <kbd>Ctrl</kbd>+<kbd>V</kbd> repeatedly to paste them in order, or in reverse. Ideal for filling forms or moving data between apps.
 - **Keyboard first.** <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> quick paste, <kbd>Enter</kbd> paste, <kbd>Shift</kbd>+<kbd>Enter</kbd> plain text, <kbd>F2</kbd> rename, <kbd>Del</kbd> delete with <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo. Every shortcut can be changed.
 - **Five themes,** including *Liquid Glass*: real Windows 11 Acrylic that follows your light/dark preference.
+- **English and Spanish,** picked automatically from your system language.
 - **Respects your privacy.** See below.
 
 <p align="center">
@@ -51,18 +53,38 @@ Nexus never sends your clipboard anywhere. Everything lives in one SQLite file u
 - **Deleted means deleted.** `secure_delete` overwrites removed clips on disk and the database compacts itself.
 - **No telemetry, no account, no network** except the optional link previews.
 
-## Install
+## Platforms
 
-Requirements: Windows 11 (Windows 10 is untested) and Python 3.11 or newer.
+| | Status | Get it |
+|---|---|---|
+| **Windows 11** | ✅ Main build, English and Spanish | [Installer (.exe)](https://github.com/Manuelcarvajal09/nexus/releases/latest) |
+| **Linux** (Wayland: Hyprland, KDE) | 🧪 Early build, Spanish interface | From source, branch [`linux/auditoria-2026-11`](https://github.com/Manuelcarvajal09/nexus/tree/linux/auditoria-2026-11) |
+| **macOS** | 🛠️ Native original (Swift) being brought into this repository | Coming soon, see [MACOS.md](MACOS.md) |
+
+Requirements, packaging and install options for each system: [docs/PLATFORMS.md](docs/PLATFORMS.md). The plan to ship all three from one codebase: [ROADMAP_1.0.md](ROADMAP_1.0.md).
+
+## Install on Windows
+
+1. Download **`Nexus-Setup-<version>.exe`** from the [latest release](https://github.com/Manuelcarvajal09/nexus/releases/latest).
+2. Run it and choose **Install for me only** (no administrator rights) or **Install for all users**.
+3. Nexus starts in the notification area. Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> to open it, and turn on *Start with Windows* in **Settings** if you want it always available.
+
+> The installer is not code-signed yet, so Windows SmartScreen may say *"Windows protected your PC"*. Click **More info › Run anyway**. Each release lists the installer's SHA-256 so you can verify the download.
+
+Upgrading keeps your history, pinboards and settings. Uninstall from *Settings › Apps*; it asks before deleting your data.
+
+**Language:** the interface follows your Windows display language (Spanish, or English otherwise). Change it in **Settings › Language**.
+
+<details>
+<summary>Install with pip instead (Python 3.11+)</summary>
 
 ```powershell
 python -m pip install "git+https://github.com/Manuelcarvajal09/nexus.git"
 nexus-windows
 ```
 
-Nexus starts in the notification area. Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> to open it. Turn on *Start with Windows* in **Settings** if you want it always available.
-
 The only runtime dependency is `PySide6-Essentials` (Qt 6 Core/Gui/Widgets).
+</details>
 
 <details>
 <summary>Run from a clone (for development)</summary>
@@ -106,15 +128,23 @@ python -m venv .venv
 
 Design notes and audits live in the Markdown files at the root of the repository (in Spanish), for example [UX_AUDIT_2026-11.md](UX_AUDIT_2026-11.md).
 
-## Status
+## Building the installer
 
-- **Windows**: the main, actively developed build (this branch). The interface is currently in Spanish; English translation is welcome.
-- **Linux** (Wayland, Hyprland/KDE): early build on the [`linux/auditoria-2026-11`](https://github.com/Manuelcarvajal09/nexus/tree/linux/auditoria-2026-11) branch.
-- Nexus started as a port of a personal macOS app; the original is not published.
+```powershell
+python -m venv build-venv
+build-venv\Scripts\python -m pip install PySide6-Essentials pyinstaller
+powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 -Python build-venv\Scripts\python.exe
+```
+
+Needs [Inno Setup 6](https://jrsoftware.org/isinfo.php). Output: `dist-installer\Nexus-Setup-<version>.exe` plus its SHA-256.
+
+## Roadmap
+
+Nexus is heading to **1.0**: signed builds, an update path, CI releases, and Windows, Linux and macOS shipped from one codebase. Details and the release sequence are in [ROADMAP_1.0.md](ROADMAP_1.0.md).
 
 ## Contributing
 
-Issues and pull requests are welcome. Good first contributions: an English translation of the interface, more card types, and testing on different Windows setups. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues and pull requests are welcome. Good first contributions: more interface languages (see `src/nexus_linux/i18n_en.py`), more card types, testing on different Windows setups, and help with the Linux and macOS builds. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 If Nexus saves you time, a ⭐ helps other people find it.
 

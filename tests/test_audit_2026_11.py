@@ -1,4 +1,5 @@
 """Regression tests for the 2026-11 reliability/security/UX audit fixes."""
+import os
 import time
 
 import pytest
@@ -213,8 +214,8 @@ def test_paste_watcher_survives_hook_refresh_cycles(qapp, monkeypatch):
     """Regression (v4/v5): the periodic re-install read MSG.hwnd (the field is hWnd),
     killed the watcher thread after 15 s and stopped the Stack until restart."""
     import sys
-    if sys.platform != "win32":
-        pytest.skip("Windows low-level hook")
+    if sys.platform != "win32" or os.environ.get("CI"):
+        pytest.skip("Windows low-level hook on an interactive desktop")
     monkeypatch.setattr(keyboard, "HOOK_REFRESH_MS", 40)
     watcher = keyboard.WindowsPasteWatcher()
     failures = []
@@ -229,3 +230,13 @@ def test_paste_watcher_survives_hook_refresh_cycles(qapp, monkeypatch):
     finally:
         watcher.stop()
     assert not watcher._thread.is_alive()
+
+
+def test_start_with_windows_points_at_nexus_exe_when_frozen(monkeypatch):
+    import sys
+    from nexus_linux import windows_autostart
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", r"C:\Users\x\AppData\Local\Programs\Nexus\Nexus.exe")
+    command = windows_autostart.launch_command()
+    assert command == r'"C:\Users\x\AppData\Local\Programs\Nexus\Nexus.exe"'
+    assert windows_autostart.is_ours(command) and not windows_autostart.is_ours(r'"C:\Other\App.exe"')

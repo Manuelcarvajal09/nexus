@@ -25,12 +25,12 @@ To see the interface with sample data (no clipboard, no hotkeys):
 - Keep changes small and focused; one topic per pull request.
 - Add or update a test for every behaviour change.
 - Never log clipboard content. Diagnostics may contain counts, ids and result codes only.
-- The UI is in Spanish today. New strings are fine in Spanish or English; a proper translation layer is a welcome contribution.
+- Interface text goes through `tr()` (`src/nexus_linux/i18n.py`): write the Spanish source text and add its English translation to `i18n_en.py`; `tests/test_i18n.py` fails if one is missing. New languages are welcome.
 - Windows-specific code lives in `src/nexus_linux/windows_*.py`. Shared modules (`storage.py`, `web_preview.py`, …) are also used by the Linux build, so keep them platform-neutral.
 
 ## Good first issues
 
-- English translation of the interface.
+- A third interface language.
 - New card types (for example phone numbers or emails).
 - Testing on different Windows versions, DPI settings and multi-monitor setups.
 
