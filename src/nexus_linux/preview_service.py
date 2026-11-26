@@ -85,6 +85,7 @@ class PreviewService(QObject):
         self._allow_network = allow_network
         self._pool = QThreadPool.globalInstance()
         self._inflight: set[str] = set()
+        self.network_enabled = True
 
     def request(self, item_id: int, url: str, is_youtube: bool) -> dict | None:
         """Call for every url/youtube card the Timeline is about to render.
@@ -103,8 +104,8 @@ class PreviewService(QObject):
             if cached.get("title"):
                 self._storage.enrich_search_text(item_id, cached["title"])
             return cached
-        if not self._allow_network:
-            return None
+        if not self._allow_network or not self.network_enabled:
+            return None  # previews off (profile or setting) -> cache only, no request
         if url in self._inflight:
             return None  # already being fetched for another card with the same URL
         self._inflight.add(url)

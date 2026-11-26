@@ -36,8 +36,9 @@ class ClipRowWidget(QWidget):
         icon_label = QLabel()
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        if item.kind == "image" and item.image_data:
-            icon_label.setPixmap(thumbnails.circular_thumbnail(item.content_hash, item.image_data, BADGE_SIZE))
+        thumb = thumbnails.circular_for(item, BADGE_SIZE)
+        if thumb is not None:
+            icon_label.setPixmap(thumb)
             icon_label.setFixedSize(BADGE_SIZE, BADGE_SIZE)
         else:
             icon_label.setPixmap(product_icons.icon(item.kind,styles.active_theme().accent,18).pixmap(18,18))

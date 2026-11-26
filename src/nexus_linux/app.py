@@ -13,6 +13,7 @@ on the same thread without blocking each other."""
 import asyncio
 import fcntl
 import logging
+import logging.handlers
 import os
 import sys
 import signal
@@ -28,7 +29,7 @@ from . import dbus_service, paths, styles, type_detection, product_ui, desktop
 from .clipboard_monitor import ClipboardMonitor
 from .evdev_stack_watcher import EvdevStackWatcher
 from .global_shortcuts import GlobalShortcuts
-from .paste_service import PasteService
+from .paste_service import PasteService, paste_failure_message
 from .preview_service import PreviewService
 from .stack import ClipStack
 from .stack_window import StackWindow
@@ -45,7 +46,9 @@ def _setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[logging.FileHandler(paths.LOG_PATH), logging.StreamHandler(sys.stderr)],
+        # Rotation caps the file (it grew without limit); one previous file is kept.
+        handlers=[logging.handlers.RotatingFileHandler(paths.LOG_PATH, maxBytes=1_000_000, backupCount=1, encoding="utf-8"),
+                  logging.StreamHandler(sys.stderr)],
     )
 
 
@@ -110,13 +113,17 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
     tray = QSystemTrayIcon(QIcon(str(tray_icon_path)))
     tray.setToolTip("Nexus")
 
+    last_notice = [0.0]
+
     def notify_paste_failed(reason: str) -> None:
         log.warning("Paste sintético falló: %s", reason)
-        tray.showMessage(
-            "Nexus no pudo pegar",
-            "El elemento se copió al portapapeles, pero no se pudo escribir automáticamente. Pégalo con Ctrl+V.",
-            QSystemTrayIcon.MessageIcon.Warning, 4000,
-        )
+        # What happened + what to do (H09); bursts are rate-limited so the tray
+        # is not flooded when every paste fails for the same reason.
+        if time.monotonic() - last_notice[0] < 8:
+            return
+        last_notice[0] = time.monotonic()
+        tray.showMessage("Nexus no pudo pegar", paste_failure_message(reason),
+                         QSystemTrayIcon.MessageIcon.Warning, 6000)
 
     log.info("Captura enabled=%s; configuración=%s; producción=%s; retención=False",
              settings.capture_enabled, paths.CONFIG_DIR, paths.PRODUCTION)

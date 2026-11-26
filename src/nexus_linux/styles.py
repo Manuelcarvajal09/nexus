@@ -50,6 +50,8 @@ class Theme:
     glow: bool = False
 
 
+# text_tertiary carries real text (card time/source, row meta): every preset
+# keeps it at >= 4.5:1 on both bg and card_bg (it was 2.5-3.7:1 before 2026-11).
 PRESETS: dict[str, Theme] = {
     "midnight_teal": Theme(
         key="midnight_teal",
@@ -59,7 +61,7 @@ PRESETS: dict[str, Theme] = {
         card_border="rgba(126, 247, 230, 0.16)", card_border_hover="rgba(126, 247, 230, 0.38)",
         accent="#00E6F0", accent_dim="rgba(0, 230, 240, 0.14)", accent_ink="#001416",
         secondary="#7EF7E6",
-        text_primary="#EEF6F7", text_secondary="#8CA3AA", text_tertiary="#5D717A",
+        text_primary="#EEF6F7", text_secondary="#8CA3AA", text_tertiary="#76878F",
         danger="#FF7A7A",
         font_family='"Inter", "Inter Display", "Cantarell", -apple-system, sans-serif',
         radius_panel=18, radius_card=12, radius_chip=9,
@@ -73,7 +75,7 @@ PRESETS: dict[str, Theme] = {
         card_border="rgba(255, 255, 255, 0.08)", card_border_hover="rgba(255, 255, 255, 0.18)",
         accent="#DDDDDD", accent_dim="rgba(221, 221, 221, 0.12)", accent_ink="#1A1A1A",
         secondary="#FFFFFF",
-        text_primary="#EAEAEA", text_secondary="#9A9A9A", text_tertiary="#6B6B6B",
+        text_primary="#EAEAEA", text_secondary="#9A9A9A", text_tertiary="#8C8C8C",
         danger="#E5796B",
         font_family='"Inter", "Cantarell", -apple-system, sans-serif',
         radius_panel=10, radius_card=8, radius_chip=6,
@@ -87,7 +89,7 @@ PRESETS: dict[str, Theme] = {
         card_border="rgba(184, 148, 60, 0.45)", card_border_hover="rgba(216, 178, 115, 0.7)",
         accent="#D8B273", accent_dim="rgba(216, 178, 115, 0.14)", accent_ink="#1A1408",
         secondary="#B8943C",
-        text_primary="#EDE6D6", text_secondary="#9A917C", text_tertiary="#6B6555",
+        text_primary="#EDE6D6", text_secondary="#9A917C", text_tertiary="#837E71",
         danger="#C97B6A",
         font_family='"Noto Serif", "Georgia", serif',
         radius_panel=12, radius_card=10, radius_chip=8,
@@ -114,7 +116,8 @@ PRESETS: dict[str, Theme] = {
 PRESETS["liquid_glass"] = replace(PRESETS["midnight_teal"], key="liquid_glass",
     display_name="Liquid Glass", bg="#101824", bg_elevated="#1B2838",
     card_bg="#243244", card_bg_hover="#304258", accent="#82C7FF",
-    secondary="#B8DCFF", text_primary="#F7FAFF", text_secondary="#C0CBD8", glow=False)
+    secondary="#B8DCFF", text_primary="#F7FAFF", text_secondary="#C0CBD8",
+    text_tertiary="#8F9CA3", glow=False)  # tertiary: >= 4.5:1 on its lighter cards
 PRESETS["light"] = replace(PRESETS["minimalist"], key="light", display_name="Claro",
     bg="#F5F7FA", bg_elevated="#FFFFFF", card_bg="#FFFFFF", card_bg_hover="#E8EEF8",
     card_border="#D3DAE5", card_border_hover="#8CA2C2", accent="#255BC7",

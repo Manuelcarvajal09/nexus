@@ -26,8 +26,8 @@ class HistoryDelegate(QStyledItemDelegate):
         icon=product_icons.icon(item.kind,t.accent,20)
         icon.paint(painter,int(rect.x()+12),int(rect.y()+14),20,20)
         left=rect.x()+44; right=rect.right()-12
-        if item.kind=='image' and item.image_data:
-            thumb=thumbnails.rounded_rect_thumbnail(item.content_hash,item.image_data,56,56,8)
+        thumb=thumbnails.rounded_rect_for(item,56,56,8)
+        if thumb is not None:
             painter.drawPixmap(int(rect.right()-68),int(rect.y()+12),thumb)
             right-=64
         painter.setPen(QColor(t.text_primary)); font=QFont('Inter');font.setPixelSize(14);painter.setFont(font)

@@ -32,8 +32,8 @@ class ShelfDelegate(QStyledItemDelegate):
         painter.drawText(QRectF(r.x()+44,r.y()+14,r.width()-60,24),Qt.AlignmentFlag.AlignVCenter,label)
         content=QRectF(r.x()+16,r.y()+54,r.width()-32,r.height()-98)
         painter.save();painter.setClipRect(content)
-        if item.kind=='image' and item.image_data:
-            thumb=thumbnails.rounded_rect_thumbnail(item.content_hash,item.image_data,int(content.width()),int(content.height()),9)
+        thumb=thumbnails.rounded_rect_for(item,int(content.width()),int(content.height()),9)
+        if thumb is not None:
             painter.drawPixmap(int(content.x()),int(content.y()),thumb)
         else:
             font.setPixelSize(14);font.setWeight(QFont.Weight.Normal);painter.setFont(font);painter.setPen(styles.colour(t.text_primary))

@@ -57,6 +57,22 @@ WL_PASTE_BIN = shutil.which("wl-paste")
 HYPRCTL_BIN = shutil.which("hyprctl")
 
 
+def paste_failure_message(reason: str) -> str:
+    """Tray text for a failed synthetic paste: what happened and what to do (H09).
+
+    Technical details (exception text) stay in the log, never in the notice."""
+    reason = reason or ""
+    if "no está instalado" in reason:
+        cause = "Falta ydotool, la herramienta que Nexus usa para pegar por ti. Instálala para pegar automáticamente."
+    elif "ventana destino" in reason or "ya no está disponible" in reason:
+        cause = "La ventana donde ibas a pegar ya no está disponible."
+    elif "Hyprland" in reason:
+        cause = "Hyprland no aceptó el pegado automático."
+    else:
+        cause = "No se pudo escribir automáticamente en la aplicación."
+    return f"{cause} El elemento ya está copiado: pégalo con Ctrl+V."
+
+
 class PasteService:
     def __init__(self, on_write=None, on_synthetic_paste=None, on_paste_failed=None):
         """on_write: optional callback invoked right before writing to the

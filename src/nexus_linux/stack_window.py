@@ -31,6 +31,7 @@ RESOURCES_DIR = Path(__file__).resolve().parent.parent.parent / "resources"
 # import, to avoid a window-module-to-window-module dependency for one
 # constant -- see that module's comment for the live-observed reasoning.
 DISMISS_DEBOUNCE_MS = 150
+ORDER_LABELS = {False: "En orden", True: "Inverso"}   # reversed_order -> user-facing label
 
 
 class StackWindow(product_ui.Surface):
@@ -239,7 +240,7 @@ class StackWindow(product_ui.Surface):
         self._subtitle.setText((f"{count} pendiente{'s' if count != 1 else ''}" if count else "Listo para acumular")
                                + (" · Activo" if self._stack.active else " · Inactivo"))
 
-        order_label = "FIFO" if not self._stack.reversed_order else "LIFO"
+        order_label = ORDER_LABELS[self._stack.reversed_order].lower()
         self._remaining_label.setText(
             f"{len(remaining)} restante{'s' if len(remaining) != 1 else ''} · {order_label}"
             if count else ""
@@ -275,7 +276,8 @@ class StackWindow(product_ui.Surface):
         technology, while the arrow makes the control legible at Stack's
         intentionally narrow utility-window size."""
         reversed_order = self._stack.reversed_order
-        self._order_btn.setText("LIFO" if reversed_order else "FIFO")
+        # Plain words (H02): "FIFO/LIFO" is queue jargon most people do not know.
+        self._order_btn.setText(ORDER_LABELS[reversed_order])
         # Use the theme's secondary accent explicitly. Tech Neon defines it
         # as its magenta neon; relying on the translucent default text color
         # can render a black icon with some Qt icon backends.
@@ -285,11 +287,11 @@ class StackWindow(product_ui.Surface):
             size=16,
         ))
         self._order_btn.setToolTip(
-            "Orden inverso: el último copiado se pega primero (LIFO)"
+            "Se pega primero lo último que copiaste · clic para cambiar"
             if reversed_order else
-            "Orden normal: el primero copiado se pega primero (FIFO)"
+            "Se pega en el mismo orden en que copiaste · clic para cambiar"
         )
-        self._order_btn.setAccessibleName("Orden LIFO" if reversed_order else "Orden FIFO")
+        self._order_btn.setAccessibleName(f"Orden de pegado: {ORDER_LABELS[reversed_order]}")
 
     def advance(self) -> None:
         # The exact remembered target is focused by PasteService. Keep Stack

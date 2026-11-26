@@ -130,6 +130,11 @@ class ClipItem:
     def is_pinned(self) -> bool:
         return len(self.pinboard_ids) > 0
 
+    def load_image_data(self) -> Optional[bytes]:
+        """The full image (same as .image_data); named for call sites that want
+        the load to be explicit, e.g. before the row is deleted."""
+        return self.image_data
+
     def preview(self, max_len: int = 80) -> str:
         if self.kind == "image":
             return "[imagen]"
@@ -137,6 +142,31 @@ class ClipItem:
             return self.file_path or "[archivo]"
         text = (self.text_content or "").replace("\n", " ").strip()
         return text[:max_len] + ("…" if len(text) > max_len else "")
+
+
+_NOT_LOADED = object()
+
+
+class _LazyImageClipItem(ClipItem):
+    """A history row whose PNG is read only when something actually needs it.
+
+    Listing used to pull every image blob of the 200 newest rows on each panel
+    open and each search keystroke (screenshots are 1-5 MB each). Thumbnails
+    are cached by content_hash, so most opens never touch the blob at all."""
+
+    _loader = None
+
+    @property
+    def image_data(self):
+        value = self.__dict__.get("_image_data", _NOT_LOADED)
+        if value is _NOT_LOADED:
+            value = self._loader(self.id) if self._loader is not None else None
+            self.__dict__["_image_data"] = value
+        return value
+
+    @image_data.setter
+    def image_data(self, value):
+        self.__dict__["_image_data"] = value
 
 
 @dataclass
@@ -175,9 +205,52 @@ class StorageService:
         # default (0) turns any brief contention into a visible failure.
         self._conn.execute("PRAGMA journal_mode = WAL")
         self._conn.execute("PRAGMA busy_timeout = 5000")
+        # Deleted clips (passwords copied by mistake, purged history) are zeroed
+        # on disk instead of lingering in free pages until overwritten.
+        self._conn.execute("PRAGMA secure_delete = ON")
         self._conn.executescript(SCHEMA)
         self._conn.commit()
         self._migrate_search_text()
+        self._fts = self._ensure_fts()
+
+    # Linux has no clip titles: the index covers the normalized content only.
+    FTS_SCHEMA = """
+    CREATE VIRTUAL TABLE clip_fts USING fts5(
+        search_text, content='clip_items', content_rowid='id', tokenize='trigram');
+    CREATE TRIGGER IF NOT EXISTS clip_fts_ai AFTER INSERT ON clip_items BEGIN
+        INSERT INTO clip_fts(rowid, search_text) VALUES (new.id, new.search_text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS clip_fts_ad AFTER DELETE ON clip_items BEGIN
+        INSERT INTO clip_fts(clip_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS clip_fts_au AFTER UPDATE OF search_text ON clip_items BEGIN
+        INSERT INTO clip_fts(clip_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+        INSERT INTO clip_fts(rowid, search_text) VALUES (new.id, new.search_text);
+    END;
+    """
+
+    def _ensure_fts(self) -> bool:
+        """Trigram full-text index over the normalized search columns.
+
+        LIKE '%q%' scanned every row on each keystroke (~45 ms for a rare word in
+        a 3,400-clip history, growing with it). Additive and idempotent; kept in
+        sync by triggers, so older Nexus versions opening the file keep it right.
+        Falls back to LIKE when this SQLite has no FTS5/trigram."""
+        try:
+            exists = self._conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'clip_fts'").fetchone()
+            if not exists:
+                self._conn.executescript(self.FTS_SCHEMA)
+                self._conn.execute("INSERT INTO clip_fts(clip_fts) VALUES ('rebuild')")
+                self._conn.commit()
+            return True
+        except sqlite3.Error:
+            self._conn.rollback()
+            return False
+
+    @staticmethod
+    def _fts_phrase(column: str, normalized: str) -> str:
+        return f'{column} : "{normalized.replace(chr(34), chr(34) * 2)}"'
 
     def _migrate_search_text(self) -> None:
         """CREATE TABLE IF NOT EXISTS never adds columns to a table that
@@ -278,8 +351,26 @@ class StorageService:
             )
             self._conn.commit()
 
+    def _list_columns(self) -> str:
+        """Every clip_items column in table order (indexes stay valid), except the
+        image blob, read on demand by _LazyImageClipItem."""
+        cached = getattr(self, "_list_columns_sql", None)
+        if cached is None:
+            names = [row[1] for row in self._conn.execute("PRAGMA table_info(clip_items)")]
+            cached = ", ".join("NULL AS image_data" if n == "image_data" else f"clip_items.{n}" for n in names)
+            self._list_columns_sql = cached
+        return cached
+
+    def _select_recent(self, joins: str, where: list, params: list, limit: int) -> list:
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        return self._conn.execute(
+            f"""SELECT {self._list_columns()} FROM clip_items {joins} {where_sql}
+                ORDER BY updated_at DESC, clip_items.id DESC LIMIT ?""",
+            [*params, limit],
+        ).fetchall()
+
     def recent(self, limit: int = 200, query: str = "", pinboard_id: Optional[int] = None, kind: Optional[str] = None) -> list[ClipItem]:
-        where = []
+        where: list = []
         params: list = []
         joins = ""
         if pinboard_id is not None:
@@ -289,16 +380,25 @@ class StorageService:
         if kind is not None:
             where.append("kind = ?")
             params.append(kind)
-        if query:
-            where.append("search_text LIKE ?")
-            params.append(f"%{normalize_for_search(query)}%")
-        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
-        params.append(limit)
-        rows = self._conn.execute(
-            f"""SELECT clip_items.* FROM clip_items {joins} {where_sql}
-                ORDER BY updated_at DESC LIMIT ?""",
-            params,
-        ).fetchall()
+        if not query:
+            return self._rows_to_items(self._select_recent(joins, where, params, limit))
+        normalized = normalize_for_search(query)
+        # Trigrams need >= 3 characters; shorter queries match almost everything
+        # anyway, so LIKE stops after `limit` hits quickly. FTS also matches
+        # literally: LIKE treated "_" and "%" in the query as wildcards.
+        use_fts = self._fts and len(normalized) >= 3
+        if use_fts:
+            condition = "clip_items.id IN (SELECT rowid FROM clip_fts WHERE clip_fts MATCH ?)"
+            argument = self._fts_phrase("search_text", normalized)
+        else:
+            condition, argument = "search_text LIKE ?", f"%{normalized}%"
+        try:
+            rows = self._select_recent(joins, [*where, condition], [*params, argument], limit)
+        except sqlite3.OperationalError:
+            if not use_fts:
+                raise
+            # A query FTS5 cannot parse (control characters...): plain LIKE instead.
+            rows = self._select_recent(joins, [*where, "search_text LIKE ?"], [*params, f"%{normalized}%"], limit)
         return self._rows_to_items(rows)
 
     def delete(self, item_id: int) -> None:
@@ -317,7 +417,27 @@ class StorageService:
             (cutoff,),
         )
         self._conn.commit()
+        self.compact_if_bloated()
         return cur.rowcount
+
+    COMPACT_MIN_FREE_BYTES = 32 * 1024 * 1024
+    COMPACT_MIN_FREE_RATIO = 0.4
+
+    def compact_if_bloated(self) -> bool:
+        """VACUUM once free pages dominate the file (never ran before: a real
+        history reached 187 MB holding ~55 MB of clips). Also drops content
+        deleted before secure_delete existed. Best effort: skipped when busy."""
+        try:
+            page_size = self._conn.execute("PRAGMA page_size").fetchone()[0]
+            pages = self._conn.execute("PRAGMA page_count").fetchone()[0]
+            free = self._conn.execute("PRAGMA freelist_count").fetchone()[0]
+            if free * page_size < self.COMPACT_MIN_FREE_BYTES or free < pages * self.COMPACT_MIN_FREE_RATIO:
+                return False
+            self._conn.execute("VACUUM")
+            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            return True
+        except sqlite3.Error:
+            return False
 
     # -- Nexus Stack session recovery --------------------------------------
 
@@ -534,15 +654,23 @@ class StorageService:
         _pinboards_for_items for why this matters."""
         item_ids = [row[0] for row in rows]
         pinboard_map = self._pinboards_for_items(item_ids)
-        return [
-            ClipItem(
+        items = []
+        for row in rows:
+            lazy = row[2] == "image" and row[4] is None   # listed without its blob
+            item = (_LazyImageClipItem if lazy else ClipItem)(
                 id=row[0], content_hash=row[1], kind=row[2], text_content=row[3],
-                image_data=row[4], file_path=row[5], source_app=row[6],
+                image_data=_NOT_LOADED if lazy else row[4], file_path=row[5], source_app=row[6],
                 created_at=row[7], updated_at=row[8],
                 pinboard_ids=pinboard_map.get(row[0], []),
             )
-            for row in rows
-        ]
+            if lazy:
+                item._loader = self._load_image_data
+            items.append(item)
+        return items
+
+    def _load_image_data(self, item_id: int) -> Optional[bytes]:
+        row = self._conn.execute("SELECT image_data FROM clip_items WHERE id = ?", (item_id,)).fetchone()
+        return row[0] if row else None
 
     @staticmethod
     def _row_to_pinboard(row) -> Optional[Pinboard]:
