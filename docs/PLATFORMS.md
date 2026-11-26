@@ -1,6 +1,6 @@
 # Platforms: status and app requirements
 
-Windows and Linux now build from the same code on `main` and share one test suite (CI runs it on both). Linux can already run the same interface as Windows (`NEXUS_UI=shared`); the classic Linux panel stays the default until that is validated on real Wayland desktops. macOS is still the separate Swift original. See [ROADMAP_1.0.md](../ROADMAP_1.0.md).
+Windows and Linux now build from the same code on `main` and share one test suite (CI runs it on both). Linux can already run the same interface as Windows, history panel and Stack included (`NEXUS_UI=shared`); the classic Linux panel stays the default until that is validated on real Wayland desktops. macOS is still the separate Swift original. See [ROADMAP_1.0.md](../ROADMAP_1.0.md).
 
 | | Windows | Linux | macOS |
 |---|---|---|---|

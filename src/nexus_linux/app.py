@@ -148,15 +148,23 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
     else:
         timeline = TimelineWindow(storage, paste_service, preview_service)
 
-    clip_stack = ClipStack(storage=storage, paste_service=paste_service)
+    from .sequential_stack import SequentialStack
+    from .stack_hyprland import HyprlandStack
+    if shared_ui:
+        # Unification phase 2b: the shared Stack window with Linux delivery.
+        from .linux_stack import LinuxStackModel, LinuxStackWindow
+        clip_stack = LinuxStackModel(storage, paste_service)
+    else:
+        clip_stack = ClipStack(storage=storage, paste_service=paste_service)
     restored_count = clip_stack.load_persisted(arm=False)
     if restored_count:
         log.info("Stack restaurado tras el último cierre: %d item(s) pendientes.", restored_count)
-    stack_window = StackWindow(clip_stack)
-    from .sequential_stack import SequentialStack
-    from .stack_hyprland import HyprlandStack
     sequential = SequentialStack(clip_stack, HyprlandStack())
-    stack_window.sequential = sequential
+    if shared_ui:
+        stack_window = LinuxStackWindow(clip_stack, sequential)
+    else:
+        stack_window = StackWindow(clip_stack)
+        stack_window.sequential = sequential
     def stack_changed():
         stack_window.refresh()
         if not clip_stack.active and not clip_stack.items():
@@ -202,6 +210,10 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
             stack_window.fade_hide()
         else:
             paste_service.remember_target()
+            if shared_ui:
+                stack_window.show_and_focus()
+                stack_window.start_collecting()   # also enables the sequential Ctrl+V
+                return
             clip_stack.activate()
             sequential.enable()
             stack_window.show_and_focus()
