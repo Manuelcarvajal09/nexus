@@ -7,7 +7,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from .i18n import plural, tr
-from . import styles, thumbnails
+from . import styles, thumbnails, product_icons
 
 KIND_LABELS = {"text": tr("Texto"), "url": tr("Enlace"), "image": tr("Imagen"), "file": tr("Archivo")}
 BADGE_SIZE = 34
@@ -38,11 +38,12 @@ class ClipRowWidget(QWidget):
         icon_label = QLabel()
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        if item.kind == "image" and item.image_data:
-            icon_label.setPixmap(thumbnails.circular_thumbnail(item.content_hash, item.image_data, BADGE_SIZE))
+        thumb = thumbnails.circular_for(item, BADGE_SIZE)
+        if thumb is not None:
+            icon_label.setPixmap(thumb)
             icon_label.setFixedSize(BADGE_SIZE, BADGE_SIZE)
         else:
-            icon_label.setPixmap(styles.kind_icon(item.kind).pixmap(18, 18))
+            icon_label.setPixmap(product_icons.icon(item.kind,styles.active_theme().accent,18).pixmap(18,18))
         badge_layout.addWidget(icon_label)
         root.addWidget(badge)
 
@@ -75,8 +76,9 @@ class ClipRowWidget(QWidget):
         root.addLayout(text_col, stretch=1)
 
         if getattr(item, "is_pinned", False):
-            pin = QLabel("📌")
-            pin.setStyleSheet("background: transparent; font-size: 12px;")
+            pin = QLabel()
+            pin.setPixmap(product_icons.icon('pin',styles.active_theme().accent,16).pixmap(16,16))
+            pin.setToolTip("Guardado en pinboard")
             root.addWidget(pin)
 
         # Soft elevation on hover -- a still shadow would just look like a

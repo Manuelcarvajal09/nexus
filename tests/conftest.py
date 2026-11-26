@@ -11,6 +11,7 @@ what was asked of it."""
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -25,6 +26,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["NEXUS_LANGUAGE"] = "es"
 
 import pytest
+
+# Even a plain pytest invocation must never touch the user profile.
+_test_profile = tempfile.TemporaryDirectory(prefix="nexus-tests-")
+os.environ.setdefault("NEXUS_PROFILE_ROOT", _test_profile.name)
 
 from nexus_linux.storage import StorageService
 
@@ -101,7 +106,7 @@ class FakePasteService:
 
 @pytest.fixture
 def storage():
-    svc = StorageService(db_path=Path(":memory:"))
+    svc = StorageService(db_path=Path(":memory:"), allow_retention=True)
     yield svc
     svc.close()
 
@@ -115,7 +120,7 @@ def file_storage(tmp_path):
     what ':memory:' means), so this fixture exists specifically for tests
     that need real cross-connection/cross-thread sharing; everything else
     should keep using the faster, fully-isolated `storage` fixture above."""
-    svc = StorageService(db_path=tmp_path / "test.sqlite")
+    svc = StorageService(db_path=tmp_path / "test.sqlite", allow_retention=True)
     yield svc
     svc.close()
 
@@ -146,3 +151,25 @@ def make_paste_service():
     how pytest was invoked (rootdir, import-mode, cwd) and is not reliable
     across environments -- a fixture always works."""
     return FakePasteService
+
+
+@pytest.fixture(autouse=True)
+def dispose_test_surfaces(request):
+    """Flush Qt deletion in the owning test, rather than a later event loop.
+
+    Parentless widgets otherwise survive through Python signal cycles and are
+    finalized during an unrelated QTest.qWait, after their storage fixture closed.
+    """
+    if 'qapp' not in request.fixturenames:
+        yield
+        return
+    app = request.getfixturevalue('qapp')
+    before = set(app.topLevelWidgets())
+    yield
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from shiboken6 import isValid
+    windows = [w for w in app.topLevelWidgets() if w not in before and isValid(w)]
+    for window in windows:
+        window.hide()
+        window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)

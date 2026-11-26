@@ -1,7 +1,7 @@
 [project]
-name = "nexus-windows"
-version = "0.4.0"
-description = "Nexus clipboard manager for Windows"
+name = "nexus-clipboard"
+version = "0.5.0rc1"
+description = "Nexus clipboard manager for Windows and Linux (Wayland)"
 requires-python = ">=3.11"
 # Only QtCore/QtGui/QtWidgets (+QtDBus on Linux) are imported: the Essentials wheel is enough.
 # The "PySide6" meta-package would also pull WebEngine, Addons and Pdf (hundreds of MB, unused).

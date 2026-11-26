@@ -61,6 +61,25 @@ def cached_rounded_rect(content_hash: str, width: int, height: int, radius: int)
     return _rounded_cache.get((content_hash, width, height, radius))
 
 
+def rounded_rect_for(item, width: int, height: int, radius: int):
+    """Thumbnail for a ClipItem, reading its image blob only on a cache miss
+    (history rows are listed without the blob, see storage._LazyImageClipItem).
+    None when the item has no usable image."""
+    cached = cached_rounded_rect(item.content_hash, width, height, radius)
+    if cached is not None:
+        return cached
+    data = item.image_data if item.kind == "image" else None
+    return rounded_rect_thumbnail(item.content_hash, data, width, height, radius) if data else None
+
+
+def circular_for(item, size: int):
+    cached = _circular_cache.get((item.content_hash, size))
+    if cached is not None:
+        return cached
+    data = item.image_data if item.kind == "image" else None
+    return circular_thumbnail(item.content_hash, data, size) if data else None
+
+
 def rounded_rect_thumbnail(content_hash: str, image_data: bytes, width: int, height: int, radius: int) -> QPixmap:
     """Rectangular, rounded-corner-masked, aspect-fill -- used for the
     dominant image element on a Timeline image/YouTube card."""

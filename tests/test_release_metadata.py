@@ -22,7 +22,7 @@ def test_version_is_a_valid_pep440_release_candidate():
 
 def test_only_the_qt_modules_that_are_shipped_are_imported():
     """Dependency is PySide6-Essentials: no source file may import a module that wheel lacks."""
-    allowed = {"QtCore", "QtGui", "QtWidgets", "QtDBus", "QtTest"}
+    allowed = {"QtCore", "QtGui", "QtWidgets", "QtDBus", "QtTest", "QtSvg"}   # all in PySide6-Essentials
     imported = set()
     for path in (ROOT / "src").rglob("*.py"):
         imported |= set(re.findall(r"PySide6\.(Qt\w+)", path.read_text(encoding="utf-8")))

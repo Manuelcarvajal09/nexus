@@ -1,0 +1,10 @@
+{
+  "environment": "offscreen, capture disabled, isolated temporary profile",
+  "single_instance": "PASS",
+  "sigterm": "PASS",
+  "sqlite_integrity": "PASS",
+  "elapsed_seconds": 5.0,
+  "cpu_seconds": 0.0,
+  "cpu_percent_one_core": 0.0,
+  "rss_mib": 102.4
+}

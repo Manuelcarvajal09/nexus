@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 from .paste_service import POST_HIDE_PASTE_DELAY_MS, PasteService
 from .pinboard_sidebar import PinboardSidebar
 from .row_widget import ClipRowWidget
+from . import desktop
 from .storage import ClipItem, StorageService
 
 RESOURCES_DIR = Path(__file__).resolve().parent.parent.parent / "resources"
@@ -41,13 +42,14 @@ class MainWindow(QWidget):
         self._paste = paste_service
         self._current_pinboard_id: int | None = None
 
-        self.setWindowTitle("Nexus")
+        self.setWindowTitle("Nexus Library")
         # Compact default footprint: wide enough for the full pinboard rail
         # and actions, without dominating the active application behind it.
         self.resize(520, 560)
         self.setMinimumSize(440, 420)
         self.setMaximumWidth(760)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(18, 18, 18, 18)
@@ -244,10 +246,11 @@ class MainWindow(QWidget):
         # Nexus itself instead of the app the user meant to paste into.
         if hasattr(self._paste, "paste_item"):
             self._paste.paste_item(item, self)
-        else:
-            self._paste.write_to_clipboard(item)
-            self.fade_hide()
-            QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, self._paste.synthetic_paste)
+            return
+        if not self._paste.write_to_clipboard(item):
+            return
+        self.fade_hide()
+        QTimer.singleShot(POST_HIDE_PASTE_DELAY_MS, self._paste.synthetic_paste)
 
     def _on_list_selection_changed(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
         if previous is not None:
@@ -373,10 +376,12 @@ class MainWindow(QWidget):
         super().keyPressEvent(event)
 
     def show_and_focus(self) -> None:
+        desktop.center(self, preferred=(620, 560))
         self.refresh()
         self.show()
         self.raise_()
         self.activateWindow()
+        desktop.present(self)
         self._search.setFocus()
 
     def fade_hide(self) -> None:

@@ -11,21 +11,31 @@ entirely: KDE's own shortcut editor owns the key grab, and it just runs a
 command we control -- no custom component registration involved."""
 
 import logging
+import hashlib
+import os
+import json
 
-from PySide6.QtCore import QObject, Slot
+from PySide6.QtCore import ClassInfo, QObject, Slot
 from PySide6.QtDBus import QDBusConnection
 
 SERVICE_NAME = "mx.com.storem.nexus"
+if os.environ.get("NEXUS_PRODUCTION") == "1":
+    SERVICE_NAME += ".production"
+if os.environ.get("NEXUS_PROFILE_ROOT"):
+    SERVICE_NAME += ".profile_" + hashlib.sha256(os.environ["NEXUS_PROFILE_ROOT"].encode()).hexdigest()[:12]
 OBJECT_PATH = "/Nexus"
 
 log = logging.getLogger("nexus.dbus_service")
 
 
+@ClassInfo(**{"D-Bus Interface": "mx.com.storem.nexus"})
 class NexusDBusService(QObject):
-    def __init__(self, show_main_panel, show_stack, parent=None):
+    def __init__(self, show_main_panel, show_stack, parent=None, stack_paste=None, stack_status=None):
         super().__init__(parent)
         self._show_main_panel = show_main_panel
         self._show_stack = show_stack
+        self._stack_paste = stack_paste
+        self._stack_status = stack_status
 
     @Slot()
     def ShowMainPanel(self) -> None:
@@ -35,9 +45,22 @@ class NexusDBusService(QObject):
     def ShowStack(self) -> None:
         self._show_stack()
 
+    @Slot(str, str, result=str)
+    def StackPaste(self, request: str, target: str) -> str:
+        return json.dumps(self._stack_paste(request,target) if self._stack_paste else {'outcome':'inactive'})
 
-def register(show_main_panel, show_stack, parent=None) -> NexusDBusService | None:
-    service = NexusDBusService(show_main_panel, show_stack, parent)
+    @Slot(result=str)
+    def StackStatus(self) -> str:
+        return json.dumps(self._stack_status() if self._stack_status else {})
+
+    @Slot()
+    def Quit(self) -> None:
+        if self.parent() is not None:
+            self.parent().quit()
+
+
+def register(show_main_panel, show_stack, parent=None, stack_paste=None, stack_status=None) -> NexusDBusService | None:
+    service = NexusDBusService(show_main_panel, show_stack, parent, stack_paste, stack_status)
     bus = QDBusConnection.sessionBus()
 
     if not bus.registerObject(OBJECT_PATH, service, QDBusConnection.RegisterOption.ExportAllSlots):

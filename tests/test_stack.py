@@ -25,10 +25,11 @@ class TestBasicSequencing:
         stack = ClipStack(storage=storage, paste_service=paste_service)
         first, second = _text(storage, "FIRST"), _text(storage, "SECOND")
 
-        stack.add(first, already_on_clipboard=True)
+        # Arming on capture is opt-in (Windows passes it; Linux never touches the clipboard on capture).
+        stack.add(first, already_on_clipboard=True, arm_existing_head=True)
         assert paste_service.written == []
 
-        stack.add(second, already_on_clipboard=True)
+        stack.add(second, already_on_clipboard=True, arm_existing_head=True)
         assert paste_service.written[-1].id == first.id
         assert stack.consume_after_real_paste().id == first.id
 
@@ -95,10 +96,10 @@ class TestManualAdvanceButton:
         returned = stack.paste_next_and_advance()
         assert returned.id == a.id
         assert paste_service.paste_count == 1
+        # Dispatch is not receipt: the head stays until the delivery is confirmed.
+        assert [i.id for i in stack.items()] == [a.id, b.id]
+        assert stack.confirm_pending().id == a.id
         assert [i.id for i in stack.items()] == [b.id]
-        # arm_next() is called for both the initial add() and each advance,
-        # so B (the new head) must be the most recent thing written.
-        assert paste_service.written[-1].id == b.id
 
     def test_paste_next_and_advance_on_empty_stack_does_not_synthesize_paste(self, storage, paste_service):
         stack = ClipStack(storage=storage, paste_service=paste_service)
@@ -225,7 +226,7 @@ class TestClipboardWriteFailureResilience:
         stack = ClipStack(storage=storage, paste_service=flaky)
         a = _text(storage, "A")
         with caplog.at_level(logging.WARNING, logger="nexus.stack"):
-            stack.add(a)
+            stack.add(a, arm_existing_head=True)
         assert any("no se pudo escribir" in r.message.lower() for r in caplog.records)
 
     def test_failed_synthetic_paste_does_not_prevent_manual_advance(self, storage, make_paste_service):

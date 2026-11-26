@@ -16,7 +16,8 @@ so every window updates the instant it changes, no per-widget bookkeeping."""
 
 import json
 import re
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, replace
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
@@ -51,6 +52,8 @@ class Theme:
     liquid_glass: bool = False
 
 
+# text_tertiary carries real text (card time/source, row meta): every preset
+# keeps it at >= 4.5:1 on both bg and card_bg (it was 2.5-3.7:1 before 2026-11).
 PRESETS: dict[str, Theme] = {
     "liquid_glass": Theme(
         key="liquid_glass",
@@ -78,7 +81,7 @@ PRESETS: dict[str, Theme] = {
         card_border="rgba(78, 221, 213, 0.22)", card_border_hover="rgba(78, 221, 213, 0.55)",
         accent="#4EDDD5", accent_dim="rgba(78, 221, 213, 0.16)", accent_ink="#00201E",
         secondary="#8AE8D6",
-        text_primary="#E6FFFC", text_secondary="#9BC3C2", text_tertiary="#6F9697",
+        text_primary="#E6FFFC", text_secondary="#9BC3C2", text_tertiary="#86ADAC",
         danger="#FF7A7A",
         font_family='"Inter", "Inter Display", "Cantarell", -apple-system, sans-serif',
         radius_panel=18, radius_card=12, radius_chip=9,
@@ -92,7 +95,7 @@ PRESETS: dict[str, Theme] = {
         card_border="rgba(255, 255, 255, 0.08)", card_border_hover="rgba(255, 255, 255, 0.18)",
         accent="#DDDDDD", accent_dim="rgba(221, 221, 221, 0.12)", accent_ink="#1A1A1A",
         secondary="#FFFFFF",
-        text_primary="#EAEAEA", text_secondary="#9A9A9A", text_tertiary="#6B6B6B",
+        text_primary="#EAEAEA", text_secondary="#9A9A9A", text_tertiary="#8C8C8C",
         danger="#E5796B",
         font_family='"Inter", "Cantarell", -apple-system, sans-serif',
         radius_panel=10, radius_card=8, radius_chip=6,
@@ -106,7 +109,7 @@ PRESETS: dict[str, Theme] = {
         card_border="rgba(184, 148, 60, 0.45)", card_border_hover="rgba(216, 178, 115, 0.7)",
         accent="#D8B273", accent_dim="rgba(216, 178, 115, 0.14)", accent_ink="#1A1408",
         secondary="#B8943C",
-        text_primary="#EDE6D6", text_secondary="#9A917C", text_tertiary="#6B6555",
+        text_primary="#EDE6D6", text_secondary="#9A917C", text_tertiary="#837E71",
         danger="#C97B6A",
         font_family='"Noto Serif", "Georgia", serif',
         radius_panel=12, radius_card=10, radius_chip=8,
@@ -120,7 +123,7 @@ PRESETS: dict[str, Theme] = {
         card_border="rgba(0, 229, 255, 0.42)", card_border_hover="rgba(255, 43, 214, 0.55)",
         accent="#00E5FF", accent_dim="rgba(0, 229, 255, 0.15)", accent_ink="#001416",
         secondary="#FF2BD6",
-        text_primary="#E6FFFF", text_secondary="#9BB3C7", text_tertiary="#5E7488",
+        text_primary="#E6FFFF", text_secondary="#9BB3C7", text_tertiary="#7088A0",
         danger="#FF5C8A",
         font_family='"Noto Sans Mono", "JetBrains Mono", monospace',
         radius_panel=6, radius_card=6, radius_chip=6,
@@ -128,7 +131,24 @@ PRESETS: dict[str, Theme] = {
     ),
 }
 
-DEFAULT_THEME = "midnight_teal"
+# Keep all original palettes. On Linux, Glass is an opaque, readable adaptation:
+# compositor blur is optional, never required for contrast. Windows keeps the
+# real Liquid Glass (DWM Acrylic + optical layers, see windows_design).
+if sys.platform != "win32":
+    PRESETS["liquid_glass"] = replace(PRESETS["midnight_teal"], key="liquid_glass",
+        display_name="Liquid Glass", bg="#101824", bg_elevated="#1B2838",
+        card_bg="#243244", card_bg_hover="#304258", accent="#82C7FF",
+        secondary="#B8DCFF", text_primary="#F7FAFF", text_secondary="#C0CBD8",
+        text_tertiary="#8F9CA3", glow=False)  # tertiary: >= 4.5:1 on its lighter cards
+PRESETS["light"] = replace(PRESETS["minimalist"], key="light", display_name="Claro",
+    bg="#F5F7FA", bg_elevated="#FFFFFF", card_bg="#FFFFFF", card_bg_hover="#E8EEF8",
+    card_border="#D3DAE5", card_border_hover="#8CA2C2", accent="#255BC7",
+    accent_dim="#E0E9FA", accent_ink="#FFFFFF", secondary="#365A91",
+    text_primary="#172338", text_secondary="#4E6078", text_tertiary="#627086", danger="#B52B40")
+PRESETS["dark"] = replace(PRESETS["minimalist"], key="dark", display_name="Oscuro")
+PRESETS["auto"] = replace(PRESETS["midnight_teal"], key="auto", display_name="Automático · Caelestia")
+
+DEFAULT_THEME = "midnight_teal" if sys.platform == "win32" else "auto"
 _THEME_FILE = None  # resolved lazily so tests/imports don't touch disk
 
 
@@ -144,7 +164,8 @@ def _load_theme_key() -> str:
     f = _theme_file()
     if f.exists():
         try:
-            key = json.loads(f.read_text()).get("theme")
+            value = json.loads(f.read_text())
+            key = value.get("theme") if isinstance(value, dict) else None
             if key in PRESETS:
                 return key
         except (json.JSONDecodeError, OSError):
@@ -165,14 +186,21 @@ def set_active_theme(key: str) -> None:
         return
     _active_key = key
     try:
-        _theme_file().write_text(json.dumps({"theme": key}))
+        target = _theme_file()
+        temp = target.with_suffix(".tmp")
+        temp.write_text(json.dumps({"theme": key}))
+        temp.chmod(0o600)
+        temp.replace(target)
     except OSError:
         pass
 
 
 def theme_choices() -> list[tuple[str, str]]:
     """(key, display_name) pairs in a stable, deliberate order."""
+    # Windows ships the five designed themes; Linux adds the system-following ones (and Caelestia).
     order = ["liquid_glass", "midnight_teal", "minimalist", "storem", "tech_neon"]
+    if sys.platform != "win32":
+        order = ["auto", "light", "dark", *order] + (["caelestia"] if "caelestia" in PRESETS else [])
     return [(k, PRESETS[k].display_name) for k in order]
 
 
@@ -204,6 +232,9 @@ def qcolor(value: str) -> QColor:
         alpha = round(raw_alpha * 255) if raw_alpha <= 1 else round(raw_alpha)
         return QColor(red, green, blue, max(0, min(255, alpha)))
     return QColor(value)
+
+
+colour = qcolor   # name used by the Linux modules
 
 
 def qss() -> str:
@@ -277,7 +308,7 @@ QLabel#title {{
 
 QLabel#subtitle {{
     color: {t.text_secondary};
-    font-size: 11.5px;
+    font-size: 12px;
 }}
 
 QLabel#rowTitle {{
@@ -289,7 +320,7 @@ QLabel#rowTitle {{
 
 QLabel#rowMeta {{
     color: {t.text_tertiary};
-    font-size: 10.5px;
+    font-size: 12px;
     background: transparent;
 }}
 
@@ -500,7 +531,7 @@ QLabel#badge {{
     color: {t.accent};
     border-radius: 7px;
     padding: 2px 8px;
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 600;
 }}
 
@@ -516,7 +547,7 @@ QLabel#badgeCompact {{
     color: {t.accent};
     border-radius: 6px;
     padding: 0px 6px;
-    font-size: 9.5px;
+    font-size: 11px;
     font-weight: 600;
 }}
 

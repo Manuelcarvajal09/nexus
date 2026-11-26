@@ -6,6 +6,7 @@ or it would reintroduce the exact per-row cost Phase 1 spent an audit
 finding and fixing."""
 
 import json
+from functools import lru_cache
 from urllib.parse import urlparse
 
 from PySide6.QtCore import QRectF, QSize, Qt
@@ -21,6 +22,13 @@ CARD_HEIGHT = 148
 CARD_MARGIN = 6
 CARD_PADDING = 10
 THUMB_HEIGHT = 88
+
+@lru_cache(maxsize=1024)
+def _detect(kind, text):
+    """type_detection.detect() parses the whole clip (json.loads, splitlines);
+    paint() runs on every hover frame. Strings cache their hash: hits are cheap."""
+    return type_detection.detect(kind, text)
+
 
 TYPE_ICON_NAMES = {
     "text": "text-x-generic",
@@ -113,12 +121,16 @@ class ClipCardDelegate(QStyledItemDelegate):
         painter.setClipPath(path)
 
         content = outer.adjusted(CARD_PADDING, CARD_PADDING, -CARD_PADDING, -CARD_PADDING)
-        detected = type_detection.detect(item.kind, item.text_content)
+        detected = _detect(item.kind, item.text_content)
+        image_thumb = None
+        if detected == "image" and item.kind == "image":
+            thumb_rect = content.adjusted(0, 0, 0, -(content.height() - self._thumb_height))
+            image_thumb = thumbnails.rounded_rect_for(item, thumb_rect.width(), self._thumb_height, t.radius_chip)
 
         if detected in ("url", "youtube"):
             self._paint_url_card(painter, content, item, detected, t)
-        elif detected == "image" and item.kind == "image" and item.image_data:
-            self._paint_image_card(painter, content, item, detected, t)
+        elif image_thumb is not None:
+            self._paint_image_card(painter, content, item, detected, t, image_thumb)
         elif detected == "color":
             self._paint_color_card(painter, content, item, t)
         elif detected in ("code", "json"):
@@ -188,11 +200,12 @@ class ClipCardDelegate(QStyledItemDelegate):
         meta_rect = rect.adjusted(0, rect.height() - 16, 0, 0)
         self._draw_meta_line(painter, meta_rect, item, label, t)
 
-    def _paint_image_card(self, painter, rect, item, detected, t) -> None:
+    def _paint_image_card(self, painter, rect, item, detected, t, pixmap=None) -> None:
         thumb_rect = rect.adjusted(0, 0, 0, -(rect.height() - self._thumb_height))
-        pixmap = thumbnails.rounded_rect_thumbnail(
-            item.content_hash, item.image_data, thumb_rect.width(), self._thumb_height, t.radius_chip,
-        )
+        if pixmap is None:
+            pixmap = thumbnails.rounded_rect_for(item, thumb_rect.width(), self._thumb_height, t.radius_chip)
+        if pixmap is None:
+            return
         painter.drawPixmap(thumb_rect.topLeft(), pixmap)
         meta_rect = rect.adjusted(0, self._thumb_height + 6, 0, 0)
         self._draw_meta_line(painter, meta_rect, item, TYPE_LABELS.get(detected, tr("Imagen")), t)

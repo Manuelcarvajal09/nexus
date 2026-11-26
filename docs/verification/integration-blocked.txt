@@ -1,0 +1,4 @@
+Install/preflight real: BLOCKED before writes.
+hyprctl: Couldn't set socket timeout (2)
+systemctl --user: Operation not permitted
+No Hyprland configuration, service or desktop launcher installed in user directories.

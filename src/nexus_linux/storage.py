@@ -7,6 +7,7 @@ can belong to any number of them (many-to-many, unlike a single boolean
 "pinned" flag); membership exempts an item from the 30-day retention purge."""
 
 import hashlib
+import sys
 import sqlite3
 import time
 import unicodedata
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import paths
+from .settings import load_settings
 
 
 def normalize_for_search(text: str) -> str:
@@ -123,7 +125,7 @@ AVAILABLE_COLORS = [
     "#D8B273", "#B8943C", "#00A6FF", "#7C4DFF",
     "#FF4D8D", "#00C853", "#FF6D00", "#00BCD4",
 ]
-SUGGESTED_EMOJI = ["📌", "⭐️", "🔥", "💡", "🎯", "📎", "🗂️", "🎨", "🚀", "❤️"]
+SUGGESTED_EMOJI = ["ðŸ“Œ", "â­ï¸", "ðŸ”¥", "ðŸ’¡", "ðŸŽ¯", "ðŸ“Ž", "ðŸ—‚ï¸", "ðŸŽ¨", "ðŸš€", "â¤ï¸"]
 _UNSET = object()
 
 
@@ -202,7 +204,7 @@ class Pinboard:
 
 
 class StorageService:
-    def __init__(self, db_path: Path = paths.DB_PATH):
+    def __init__(self, db_path: Path = paths.DB_PATH, *, allow_retention: bool | None = None):
         paths.ensure_dirs()
         # Kept for callers that need their own connection to the same file
         # on a different thread (sqlite3 connections are not thread-safe to
@@ -210,6 +212,11 @@ class StorageService:
         # StorageService(db_path=storage.db_path) rather than touching this
         # instance's self._conn from a worker thread).
         self.db_path = db_path
+        if allow_retention is None:
+            # Windows has always purged unpinned clips after the retention period;
+            # the Linux build makes it an explicit opt-in in its own settings.
+            allow_retention = True if sys.platform == "win32" else load_settings().allow_retention
+        self.allow_retention = allow_retention is True
         self._conn = sqlite3.connect(str(db_path))
         self._conn.execute("PRAGMA foreign_keys = ON")
         # WAL lets a future reader (backup, diagnostics) run concurrently with
@@ -252,6 +259,12 @@ class StorageService:
         try:
             exists = self._conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'clip_fts'").fetchone()
+            if exists and "title_search" not in {row[1] for row in self._conn.execute("PRAGMA table_info(clip_fts)")}:
+                # Early Linux builds indexed content only: rebuild with titles.
+                self._conn.executescript(
+                    "DROP TRIGGER IF EXISTS clip_fts_ai; DROP TRIGGER IF EXISTS clip_fts_ad;"
+                    "DROP TRIGGER IF EXISTS clip_fts_au; DROP TABLE clip_fts;")
+                exists = None
             if not exists:
                 self._conn.executescript(self.FTS_SCHEMA)
                 self._conn.execute("INSERT INTO clip_fts(clip_fts) VALUES ('rebuild')")
@@ -401,11 +414,11 @@ class StorageService:
         where_sql = f"WHERE {' AND '.join(where)}" if where else ""
         return self._conn.execute(
             f"""SELECT {self._list_columns()} FROM clip_items {joins} {where_sql}
-                ORDER BY updated_at DESC LIMIT ?""",
+                ORDER BY updated_at DESC, clip_items.id DESC LIMIT ?""",
             [*params, limit],
         ).fetchall()
 
-    def recent(self, limit: int = 200, query: str = "", pinboard_id: Optional[int] = None) -> list[ClipItem]:
+    def recent(self, limit: int = 200, query: str = "", pinboard_id: Optional[int] = None, kind: Optional[str] = None) -> list[ClipItem]:
         where: list = []
         params: list = []
         joins = ""
@@ -413,6 +426,9 @@ class StorageService:
             joins = "JOIN pinboard_items pi ON pi.item_id = clip_items.id"
             where.append("pi.pinboard_id = ?")
             params.append(pinboard_id)
+        if kind is not None:
+            where.append("kind = ?")
+            params.append(kind)
         if not query:
             return self._rows_to_items(self._select_recent(joins, where, params, limit))
         # Title matches first, then content-only matches, each most-recent-first.
@@ -421,7 +437,8 @@ class StorageService:
         normalized = normalize_for_search(query)
         pattern = f"%{normalized}%"
         # Trigrams need >= 3 characters; shorter queries match almost everything
-        # anyway, so LIKE stops after `limit` hits quickly.
+        # anyway, so LIKE stops after `limit` hits quickly. FTS also matches
+        # literally: LIKE treated "_" and "%" in the query as wildcards.
         use_fts = self._fts and len(normalized) >= 3
         fts = "clip_items.id IN (SELECT rowid FROM clip_fts WHERE clip_fts MATCH ?)"
         title_cond, title_arg = (fts, self._fts_phrase("title_search", normalized)) if use_fts else ("title_search LIKE ?", pattern)
@@ -434,7 +451,7 @@ class StorageService:
             # A query FTS5 cannot parse (control characters...): plain LIKE instead.
             self._fts, fallback = False, None
             try:
-                fallback = self.recent(limit, query, pinboard_id)
+                fallback = self.recent(limit, query, pinboard_id, kind)
             finally:
                 self._fts = True
             return fallback
@@ -482,6 +499,10 @@ class StorageService:
         return counts
 
     def purge_older_than(self, days: int) -> int:
+        if not self.allow_retention:
+            return 0
+        if type(days) is not int or days < 1:
+            raise ValueError("retention days must be a positive integer")
         cutoff = time.time() - days * 86400
         cur = self._conn.execute(
             """DELETE FROM clip_items WHERE updated_at < ? AND title IS NULL AND id NOT IN
@@ -513,7 +534,7 @@ class StorageService:
 
     # -- Nexus Stack session recovery --------------------------------------
 
-    def save_stack_state(self, item_ids: list[int], reversed_order: bool) -> None:
+    def save_stack_state(self, item_ids: list[int], reversed_order: bool, *, commit: bool = True) -> None:
         """Overwrites the persisted Stack session wholesale -- called after
         every ClipStack mutation (add/consume/remove/clear/reorder), so a
         crash between two mutations can only lose the DB write for the
@@ -528,7 +549,8 @@ class StorageService:
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             ("1" if reversed_order else "0",),
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
 
     def load_stack_state(self) -> tuple[list[int], bool]:
         rows = self._conn.execute(

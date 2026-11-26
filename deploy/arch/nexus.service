@@ -1,0 +1,22 @@
+[Unit]
+Description=Nexus clipboard manager
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecCondition="/home/manuel/.local/share/nexus-runtime/venv/bin/python" -m nexus_linux.session ready
+ExecStart="/home/manuel/.local/share/nexus-runtime/venv/bin/python" -m nexus_linux.app
+WorkingDirectory=/home/manuel/Projects/Nexus/linux
+Environment="NEXUS_PRODUCTION=1"
+Environment="NEXUS_PROFILE_ROOT="
+Environment="NEXUS_OPEN_ON_START=0"
+Environment="NEXUS_CAPTURE_DISABLED=0"
+Environment="XDG_CONFIG_HOME=/home/manuel/.config"
+Environment="XDG_DATA_HOME=/home/manuel/.local/share"
+Environment="PYTHONPATH=/home/manuel/Projects/Nexus/linux/src"
+Environment="QT_QPA_PLATFORM=wayland"
+UMask=0077
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=8

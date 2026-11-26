@@ -13,8 +13,10 @@ on the same thread without blocking each other."""
 import asyncio
 import fcntl
 import logging
+import logging.handlers
 import os
 import sys
+import signal
 import time
 from pathlib import Path
 
@@ -23,17 +25,17 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QFont, QFontDatabase, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from . import dbus_service, paths, styles, type_detection
+from . import dbus_service, paths, styles, type_detection, product_ui, desktop
 from .clipboard_monitor import ClipboardMonitor
 from .evdev_stack_watcher import EvdevStackWatcher
 from .global_shortcuts import GlobalShortcuts
-from .main_window import MainWindow
-from .paste_service import PasteService
+from .paste_service import PasteService, paste_failure_message
 from .preview_service import PreviewService
 from .stack import ClipStack
-from .stack_window import StackWindow
+from .stack_window_linux import StackWindow
 from .storage import StorageService
-from .timeline_window import TimelineWindow
+from .settings import load_settings
+from .timeline_window_linux import TimelineWindow
 
 RETENTION_DAYS = 30
 RESOURCES_DIR = Path(__file__).resolve().parent.parent.parent / "resources"
@@ -44,7 +46,9 @@ def _setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[logging.FileHandler(paths.LOG_PATH), logging.StreamHandler(sys.stderr)],
+        # Rotation caps the file (it grew without limit); one previous file is kept.
+        handlers=[logging.handlers.RotatingFileHandler(paths.LOG_PATH, maxBytes=1_000_000, backupCount=1, encoding="utf-8"),
+                  logging.StreamHandler(sys.stderr)],
     )
 
 
@@ -98,70 +102,64 @@ def _install_exception_hook() -> None:
 async def _run(app: QApplication, close_event: asyncio.Event) -> None:
     log = logging.getLogger("nexus")
 
-    storage = StorageService()
+    settings = load_settings()
+    from . import caelestia_theme
+    caelestia_theme.apply()
+    app.setStyleSheet(styles.qss() + product_ui.qss())
+    storage = StorageService(allow_retention=False)
     log.info("Storage abierto en %s", paths.DB_PATH)
 
     tray_icon_path = RESOURCES_DIR / "nexus-tray.png"
     tray = QSystemTrayIcon(QIcon(str(tray_icon_path)))
     tray.setToolTip("Nexus")
 
+    last_notice = [0.0]
+
     def notify_paste_failed(reason: str) -> None:
         log.warning("Paste sintético falló: %s", reason)
-        tray.showMessage(
-            "Nexus no pudo pegar",
-            "El elemento se copió al portapapeles, pero no se pudo escribir automáticamente. Pégalo con Ctrl+V.",
-            QSystemTrayIcon.MessageIcon.Warning, 4000,
-        )
+        # What happened + what to do (H09); bursts are rate-limited so the tray
+        # is not flooded when every paste fails for the same reason.
+        if time.monotonic() - last_notice[0] < 8:
+            return
+        last_notice[0] = time.monotonic()
+        tray.showMessage("Nexus no pudo pegar", paste_failure_message(reason),
+                         QSystemTrayIcon.MessageIcon.Warning, 6000)
 
-    monitor = ClipboardMonitor(storage)
+    log.info("Captura enabled=%s; configuración=%s; producción=%s; retención=False",
+             settings.capture_enabled, paths.CONFIG_DIR, paths.PRODUCTION)
+    monitor = ClipboardMonitor(storage, enabled=settings.capture_enabled)
+    app.aboutToQuit.connect(monitor.stop)
     watcher = EvdevStackWatcher()
     paste_service = PasteService(
         on_write=monitor.suppress_next_change,
         on_synthetic_paste=watcher.suppress_for,
         on_paste_failed=notify_paste_failed,
     )
-    # Phase 2: Ctrl+Shift+V now opens `timeline` -- the fast, keyboard-first,
-    # virtualized card bar (see PASTE_PRODUCT_ANALYSIS.md / DESIGN_SYSTEM.md).
-    # `library_window` (the original vertical MainWindow) keeps the pinboard
-    # CRUD (rename/icon/reorder/delete) that doesn't fit a short horizontal
-    # bar well -- reachable from the tray, not from the hot-path shortcut,
-    # since those are occasional management actions, not the daily-use path.
-    preview_service = PreviewService(storage, parent=app)
-    library_window = MainWindow(storage, paste_service)
+    # One main surface owns History and Pinboards; Stack remains independent.
+    preview_service = PreviewService(storage, parent=app, allow_network=settings.network_previews)
     timeline = TimelineWindow(storage, paste_service, preview_service)
 
     clip_stack = ClipStack(storage=storage, paste_service=paste_service)
-    restored_count = clip_stack.load_persisted()
+    restored_count = clip_stack.load_persisted(arm=False)
     if restored_count:
         log.info("Stack restaurado tras el último cierre: %d item(s) pendientes.", restored_count)
     stack_window = StackWindow(clip_stack)
-
-    def on_real_paste_detected():
-        # Deliberately NOT gated on stack_window.is_collecting() (window
-        # visibility) -- consuming a real Ctrl+V must keep working even
-        # after the Stack window has auto-hidden itself (see
-        # StackWindow.advance() and below). Otherwise sequential pasting
-        # (A, B, C into some other app) would silently stop working after
-        # the first item, since the window that opened the session is no
-        # longer the thing tracking whether more items are pending -- the
-        # Stack's own contents are. Adding NEW captures to the Stack still
-        # requires the window to be visible (unchanged, see on_captured):
-        # only *consuming* is decoupled from visibility.
-        if stack_window.has_pending_items():
-            item = clip_stack.consume_after_real_paste()
-            log.info("Ctrl+V real detectado -> consumido del Stack: #%s", item.id if item else None)
-            stack_window.refresh()
-            # Smart dismiss: once the user is actively pasting a sequence,
-            # Nexus Stack should get out of the way immediately rather than
-            # sit on top through every subsequent paste -- it reopens on
-            # the next Ctrl+Shift+C. Not conditional on emptying anymore.
+    from .sequential_stack import SequentialStack
+    from .stack_hyprland import HyprlandStack
+    sequential = SequentialStack(clip_stack, HyprlandStack())
+    stack_window.sequential = sequential
+    def stack_changed():
+        stack_window.refresh()
+        if not clip_stack.active and not clip_stack.items():
             stack_window.fade_hide()
+    sequential.changed = stack_changed
+    app.aboutToQuit.connect(sequential.pause)
+    app.aboutToQuit.connect(lambda: desktop.save(timeline))
+    app.aboutToQuit.connect(lambda: desktop.save(stack_window))
 
-    watcher.paste_detected.connect(on_real_paste_detected)
-    if watcher.start():
-        log.info("Auto-avance del Stack activo (watcher de teclado real, grupo 'input' confirmado).")
-    else:
-        log.info("Auto-avance del Stack no disponible; usa \"Pegar siguiente (manual)\".")
+    # Global keyboard observation cannot prove application receipt on Wayland.
+    # The legacy evdev watcher is intentionally not started, even for old settings.
+    log.info("Stack: política de envío Hyprland con recuperación; sin acuse de aplicación. Evdev deshabilitado.")
     app.aboutToQuit.connect(watcher.stop)
 
     def on_captured(item):
@@ -176,8 +174,6 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
         detected = type_detection.detect(item.kind, item.text_content)
         if detected in ("url", "youtube"):
             preview_service.request(item.id, item.text_content, is_youtube=(detected == "youtube"))
-        if library_window.isVisible():
-            library_window.refresh()
         if timeline.isVisible():
             timeline.refresh()
         if stack_window.is_collecting():
@@ -185,27 +181,54 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
 
     monitor.captured.connect(on_captured)
 
+    def show_timeline() -> None:
+        if timeline.isVisible():
+            timeline.fade_hide()
+        else:
+            paste_service.remember_target()
+            timeline.show_and_focus()
+
+    def show_stack() -> None:
+        if stack_window.isVisible():
+            stack_window.fade_hide()
+        else:
+            paste_service.remember_target()
+            clip_stack.activate()
+            sequential.enable()
+            stack_window.show_and_focus()
+
+    def show_library() -> None:
+        paste_service.remember_target()
+        timeline.show_pinboards()
+        timeline.show_and_focus()
+
+    timeline.library_requested.connect(show_library)
+
     menu = QMenu()
     open_action = menu.addAction("Abrir Nexus")
-    open_action.triggered.connect(timeline.show_and_focus)
+    open_action.triggered.connect(show_timeline)
     stack_action = menu.addAction("Nexus Stack")
-    stack_action.triggered.connect(stack_window.show_and_focus)
+    stack_action.triggered.connect(show_stack)
     manage_action = menu.addAction("Administrar pinboards y biblioteca…")
-    manage_action.triggered.connect(library_window.show_and_focus)
+    manage_action.triggered.connect(show_library)
     menu.addSeparator()
 
+    from .appearance import AppearanceDialog
+    appearance = AppearanceDialog(apply=lambda key: apply_theme(key), parent=timeline, capture_changed=monitor.configure)
+    timeline.appearance_requested.connect(appearance.show)
+    appearance_action = menu.addAction("Apariencia…")
+    appearance_action.triggered.connect(appearance.show)
     theme_menu = menu.addMenu("Tema")
     theme_actions = {}
 
     def apply_theme(key: str) -> None:
         styles.set_active_theme(key)
         styles.clear_icon_cache()
-        app.setStyleSheet(styles.qss())
+        app.setStyleSheet(styles.qss() + product_ui.qss())
         for action, action_key in theme_actions.items():
             action.setChecked(action_key == key)
-        library_window.refresh()
         stack_window.refresh()
-        library_window.refresh_sidebar_icons()
+        timeline._board_panel.refresh()
         timeline.refresh()
 
     for theme_key, theme_label in styles.theme_choices():
@@ -215,19 +238,38 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
         theme_action.triggered.connect(lambda _checked, k=theme_key: apply_theme(k))
         theme_actions[theme_action] = theme_key
 
+    if True:
+        last_palette = caelestia_theme.read_palette()
+        def update_desktop_theme():
+            nonlocal last_palette
+            current_palette = caelestia_theme.read_palette()
+            if current_palette == last_palette:
+                return
+            last_palette = current_palette
+            if styles.active_theme().key in ("auto", "caelestia") and caelestia_theme.apply():
+                styles.clear_icon_cache()
+                app.setStyleSheet(styles.qss() + product_ui.qss())
+                timeline.refresh()
+                stack_window.refresh()
+        theme_timer = QTimer(app)
+        theme_timer.timeout.connect(update_desktop_theme)
+        theme_timer.start(3000)
+
     menu.addSeparator()
     quit_action = menu.addAction("Salir")
     quit_action.triggered.connect(app.quit)
     tray.setContextMenu(menu)
     tray.activated.connect(
-        lambda reason: timeline.show_and_focus()
+        lambda reason: show_timeline()
         if reason == QSystemTrayIcon.ActivationReason.Trigger
         else None
     )
     tray.show()
 
     dbus_svc = dbus_service.register(
-        show_main_panel=timeline.show_and_focus, show_stack=stack_window.show_and_focus, parent=app,
+        show_main_panel=show_timeline, show_stack=show_stack, parent=app,
+        stack_paste=sequential.dispatch,
+        stack_status=sequential.status,
     )
     if dbus_svc is not None:
         log.info(
@@ -237,22 +279,18 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
         )
 
     shortcuts = GlobalShortcuts()
-    if await shortcuts.connect_bus():
+    if os.environ.get("NEXUS_PROFILE_ROOT") or os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        log.info("Hyprland: atajos externos por D-Bus; no se modifica ningún bind de Caelestia.")
+    elif await shortcuts.connect_bus():
         ok_stack = await shortcuts.register("toggle-stack", "Abrir Nexus Stack", "Ctrl+Shift+C")
         ok_panel = await shortcuts.register("toggle-main-panel", "Abrir historial de Nexus", "Ctrl+Shift+V")
         def on_shortcut(action_id: str) -> None:
             t0 = time.perf_counter()
             log.info("Atajo global disparado: %s", action_id)
             if action_id == "toggle-stack":
-                if stack_window.isVisible():
-                    stack_window.fade_hide()
-                else:
-                    stack_window.show_and_focus()
+                show_stack()
             elif action_id == "toggle-main-panel":
-                if timeline.isVisible():
-                    timeline.fade_hide()
-                else:
-                    timeline.show_and_focus()
+                show_timeline()
             log.info(
                 "shortcut: %s -> ventana lista en %.1fms",
                 action_id, (time.perf_counter() - t0) * 1000,
@@ -266,17 +304,20 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
     else:
         log.warning("No se pudo conectar al bus D-Bus para atajos globales.")
 
-    retention_timer = QTimer()
-    retention_timer.timeout.connect(lambda: log.info(
-        "Purga de retención: %s elementos eliminados", storage.purge_older_than(RETENTION_DAYS)
-    ))
-    retention_timer.start(6 * 60 * 60 * 1000)  # every 6h, same order of magnitude as a daily sweep
+    log.info("Retención deshabilitada: ningún clip se elimina por edad.")
+
+    if os.environ.get("NEXUS_OPEN_ON_START") == "1":
+        QTimer.singleShot(250, show_timeline)
 
     log.info("Nexus Linux iniciado")
     await close_event.wait()
+    monitor.stop()
+    watcher.stop()
+    storage.close()
 
 
 def main() -> int:
+    os.umask(0o077)
     _setup_logging()
     _install_exception_hook()
 
@@ -286,7 +327,25 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("Nexus")
+    app.setDesktopFileName("mx.com.storem.nexus")
     app.setQuitOnLastWindowClosed(False)
+    signal.signal(signal.SIGTERM, lambda *_: app.quit())
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
+    # Exit when this session compositor disappears, also on desktops without
+    # a managed graphical-session.target. Poll only metadata, every five seconds.
+    signature = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    session_guard = QTimer(app)
+    if signature and os.environ.get("XDG_RUNTIME_DIR"):
+        socket = Path(os.environ["XDG_RUNTIME_DIR"]) / "hypr" / signature / ".socket.sock"
+        session_guard.timeout.connect(lambda: app.quit() if not socket.exists() else None)
+        session_guard.start(5000)
+
+    # A bounded smoke test is allowed only in an explicitly isolated profile.
+    if os.environ.get("NEXUS_PROFILE_ROOT") and os.environ.get("NEXUS_SMOKE_EXIT_MS"):
+        smoke_ms = int(os.environ["NEXUS_SMOKE_EXIT_MS"])
+        if not 1000 <= smoke_ms <= 60000:
+            raise ValueError("Smoke timeout must be between 1000 and 60000 ms")
+        QTimer.singleShot(smoke_ms, app.quit)
 
     # Without a full desktop platform-theme plugin, Qt resolves
     # QIcon.fromTheme() against the empty "hicolor" fallback instead of the
@@ -303,7 +362,7 @@ def main() -> int:
     # automatically re-polishes every existing widget when this changes, so
     # switching themes later (see the tray "Tema" menu) is just calling this
     # again -- no need to track every open window to restyle it by hand.
-    app.setStyleSheet(styles.qss())
+    app.setStyleSheet(styles.qss() + product_ui.qss())
 
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)

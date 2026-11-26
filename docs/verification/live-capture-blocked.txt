@@ -1,0 +1,1 @@
+VALIDACIÓN FALLIDA: Command '['hyprctl', 'version']' returned non-zero exit status 2.

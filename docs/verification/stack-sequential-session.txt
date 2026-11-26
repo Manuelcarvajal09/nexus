@@ -1,0 +1,13 @@
+Checks in restricted environment, not live-session PASS.
+
+CHECK 0
+Stack: Hyprland rechazó la operación
+
+CHECK 1
+{"database": "/home/manuel/.local/share/nexus/production/nexus.sqlite", "count": 8, "previously_validated": true, "capture_enabled": true, "retention_in_app": false}
+{"counts_by_kind": {"text": 8}, "stack_pending": 0, "latest": [8, "text", 1791479346.7696774]}
+
+CHECK 2
+/usr/bin/luajit
+/usr/bin/lua
+Failed to connect to user scope bus via local transport: Operation not permitted (consider using --machine=<user>@.host --user to connect to bus of other user)

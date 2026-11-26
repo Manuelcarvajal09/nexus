@@ -49,6 +49,10 @@ class TimelineModel(QAbstractListModel):
         item = self._items[index.row()]
         if role == ITEM_ROLE:
             return item
+        if role == Qt.ItemDataRole.AccessibleTextRole:
+            return item.kind + ": " + item.preview(120)
+        if role == Qt.ItemDataRole.ToolTipRole:
+            return item.preview(400)
         if role == Qt.ItemDataRole.DisplayRole:
             return item.preview(60)
         return None

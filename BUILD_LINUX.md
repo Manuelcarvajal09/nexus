@@ -1,3 +1,5 @@
+> Para el candidato Arch Linux/Hyprland 1.0.0rc1, usar [NEXUS_1_RC1.md](NEXUS_1_RC1.md). El instalador actual usa el runtime privado y systemd; las instrucciones antiguas de `.venv` de este documento son históricas.
+
 # Compilar / ejecutar Nexus Linux
 
 ## Requisitos
