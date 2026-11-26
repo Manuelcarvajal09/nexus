@@ -1,4 +1,5 @@
 """Capture activation must prove destination, isolation and clipboard preservation."""
+import shutil
 import importlib.util
 import json
 from pathlib import Path
@@ -61,6 +62,7 @@ def test_service_must_be_stopped_and_use_matching_roots(tmp_path):
         with pytest.raises(RuntimeError, match='perfil'): check_stopped_service(config,database)
 
 
+@pytest.mark.skipif(not (Path.home() / '.local/share/nexus-runtime/venv/bin/python').exists(), reason='needs the installed Nexus Linux runtime')
 def test_service_only_update_recognizes_exact_manual_fix_preserves_bindings(tmp_path):
     prefix = tmp_path/'integration'
     cmd = [sys.executable,str(ROOT/'scripts/integrate.py')]

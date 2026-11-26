@@ -33,6 +33,23 @@ os.environ.setdefault("NEXUS_PROFILE_ROOT", _test_profile.name)
 
 from nexus_linux.storage import StorageService
 
+# Tests of Windows-only machinery (SendInput, the Ctrl+V hook, DWM Acrylic and the
+# optical glass, the registry, RC1 packaging) only run on Windows. Everything
+# else, including the shared interface, runs on every platform.
+WINDOWS_ONLY_TESTS = {
+    "test_liquid_glass_adaptive.py", "test_rc1_package.py", "test_rc1_sandbox.py", "test_styles.py",
+    "test_autostart.py", "test_focus_restoration.py",
+}
+
+
+def pytest_ignore_collect(collection_path, config):
+    if sys.platform == "win32":
+        return None
+    name = collection_path.name
+    if name.startswith("test_windows_") or name in WINDOWS_ONLY_TESTS:
+        return True
+    return None
+
 
 @pytest.fixture(autouse=True)
 def deterministic_system_theme():

@@ -1,4 +1,5 @@
 """Nexus 1.0 contracts: delivery, isolation, original data and integration."""
+import shutil
 import pytest
 import importlib.util
 import json
@@ -90,6 +91,7 @@ def test_exact_internal_suppression_never_discards_unrelated_copy(storage):
     assert monitor._excluded(b'a' * (monitor._settings.max_capture_bytes+1), [])
 
 
+@pytest.mark.skipif(shutil.which('wl-paste') is None, reason='needs wl-clipboard (a Wayland desktop)')
 def test_exclusion_before_storage(storage):
     monitor = ClipboardMonitor(storage, enabled=False)
     with patch.object(monitor, '_list_types', return_value=['x-kde-passwordManagerHint', 'text/plain']), patch.object(monitor, '_read') as read:
@@ -113,6 +115,7 @@ def test_palettes_and_live_selection_persist(qapp, tmp_path):
         dialog.close()
 
 
+@pytest.mark.skipif(not (Path.home() / '.local/share/nexus-runtime/venv/bin/python').exists(), reason='needs the installed Nexus Linux runtime')
 def test_installer_staging_idempotent_and_uninstall_preserves_data(tmp_path):
     root = Path(__file__).resolve().parents[1]
     prefix = tmp_path/'integration'

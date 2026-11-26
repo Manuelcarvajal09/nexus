@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes, logging, os, threading, time, uuid
 from dataclasses import dataclass
 from ctypes import wintypes
+from . import win32dll
 from PySide6.QtCore import QObject, Signal
 from .i18n import plural, tr
 from . import windows_sandbox
@@ -10,13 +11,13 @@ from .windows_platform import NEXUS_INPUT_MARKER, FocusTarget, capture_focus_tar
 
 WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN, WM_KEYUP, WM_SYSKEYUP, WM_QUIT = 13, 0x0100, 0x0104, 0x0101, 0x0105, 0x0012
 VK_CONTROL, VK_V, LLKHF_INJECTED = 0x11, 0x56, 0x10
-user32 = ctypes.WinDLL("user32", use_last_error=True)
-kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+user32 = win32dll.load("user32")
+kernel32 = win32dll.load("kernel32")
 
 class KBDLLHOOKSTRUCT(ctypes.Structure):
     _fields_ = [("vkCode", wintypes.DWORD), ("scanCode", wintypes.DWORD), ("flags", wintypes.DWORD), ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
 
-HOOKPROC = ctypes.WINFUNCTYPE(ctypes.c_longlong, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+HOOKPROC = win32dll.FUNCTYPE(ctypes.c_longlong, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
 user32.SetWindowsHookExW.restype = wintypes.HANDLE
 user32.SetWindowsHookExW.argtypes = [ctypes.c_int, HOOKPROC, wintypes.HINSTANCE, wintypes.DWORD]
 user32.CallNextHookEx.restype = ctypes.c_longlong

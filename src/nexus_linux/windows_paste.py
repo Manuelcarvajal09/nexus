@@ -1,6 +1,7 @@
 from __future__ import annotations
 import ctypes, logging, os, time, uuid
 from ctypes import wintypes
+from . import win32dll
 from enum import Enum
 from PySide6.QtCore import QMimeData, QObject, QTimer, QUrl, Signal
 from PySide6.QtGui import QGuiApplication, QImage
@@ -11,7 +12,7 @@ from .windows_platform import (
     input_blocked_by_uipi,
 )
 
-user32 = ctypes.WinDLL("user32", use_last_error=True)
+user32 = win32dll.load("user32")
 INPUT_KEYBOARD, KEYEVENTF_KEYUP = 1, 0x0002
 class KEYBDINPUT(ctypes.Structure):
     _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD), ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]

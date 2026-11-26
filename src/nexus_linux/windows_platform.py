@@ -4,11 +4,12 @@ import ctypes
 import os
 import time
 from ctypes import wintypes
+from . import win32dll
 from dataclasses import dataclass
 
-user32 = ctypes.WinDLL("user32", use_last_error=True)
-kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+user32 = win32dll.load("user32")
+kernel32 = win32dll.load("kernel32")
+dwmapi = win32dll.load("dwmapi")
 WM_HOTKEY = 0x0312
 WM_NCLBUTTONDOWN, HTCAPTION = 0x00A1, 2
 MOD_CONTROL, MOD_SHIFT, MOD_NOREPEAT = 0x0002, 0x0004, 0x4000
@@ -177,7 +178,7 @@ def is_shell_surface(hwnd: int) -> bool:
     return window_class_name(hwnd) in SHELL_SURFACE_CLASSES
 
 
-advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+advapi32 = win32dll.load("advapi32")
 advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
 advapi32.OpenProcessToken.restype = wintypes.BOOL
 advapi32.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
