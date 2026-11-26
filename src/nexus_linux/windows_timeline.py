@@ -863,6 +863,7 @@ class WindowsTimelineWindow(TimelineWindow):
             self._list.setCurrentIndex(self._model.index(min(row, count - 1), 0))
 
     def _delete_item(self, item):
+        item.load_image_data()   # listed rows read the PNG lazily: keep it for Deshacer
         super()._delete_item(item)
         self._undo_item = item
         self._show_notice("Eliminado", undo=True)

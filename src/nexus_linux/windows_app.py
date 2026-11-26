@@ -218,6 +218,17 @@ class SettingsBackend:
             self._save()
         windows_optical.set_enabled(enabled)
 
+    def link_previews(self):
+        return bool(self.settings.get("link_previews", True))
+
+    def set_link_previews(self, enabled):
+        enabled = bool(enabled)
+        if enabled != self.link_previews():
+            self.settings["link_previews"] = enabled
+            self._save()
+        for preview in getattr(self, "previews", ()):
+            preview.network_enabled = enabled
+
     def autostart_enabled(self):
         return bool(self.settings.get("autostart", False))
 
@@ -563,6 +574,8 @@ def _run_windows(lifetime):
     hotkeys.register_all()
     notices += hotkeys.notices
     settings_backend = SettingsBackend(settings, shortcut_store, hotkeys, timeline, notices)
+    settings_backend.previews = (preview,)
+    preview.network_enabled = settings_backend.link_previews()
     try:   # keep an enabled entry pointing at THIS interpreter (follows upgrades/rollbacks); never creates one
         logging.getLogger("nexus.autostart").info("sync %s", windows_autostart.sync(bool(settings.get("autostart", False))))
     except Exception as exc:  # noqa: BLE001 - autostart must never prevent startup

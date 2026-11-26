@@ -56,6 +56,11 @@ def circular_thumbnail(content_hash: str, image_data: bytes, size: int) -> QPixm
     return result
 
 
+def cached_rounded_rect(content_hash: str, width: int, height: int, radius: int):
+    """The cached thumbnail, or None -- lets callers skip loading the image blob."""
+    return _rounded_cache.get((content_hash, width, height, radius))
+
+
 def rounded_rect_thumbnail(content_hash: str, image_data: bytes, width: int, height: int, radius: int) -> QPixmap:
     """Rectangular, rounded-corner-masked, aspect-fill -- used for the
     dominant image element on a Timeline image/YouTube card."""

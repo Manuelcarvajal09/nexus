@@ -146,6 +146,11 @@ class ClipItem:
     def is_pinned(self) -> bool:
         return len(self.pinboard_ids) > 0
 
+    def load_image_data(self) -> Optional[bytes]:
+        """The full image (same as .image_data); named for call sites that want
+        the load to be explicit, e.g. before the row is deleted."""
+        return self.image_data
+
     def preview(self, max_len: int = 80) -> str:
         if self.kind == "image":
             return "[imagen]"
@@ -153,6 +158,31 @@ class ClipItem:
             return self.file_path or "[archivo]"
         text = (self.text_content or "").replace("\n", " ").strip()
         return text[:max_len] + ("…" if len(text) > max_len else "")
+
+
+_NOT_LOADED = object()
+
+
+class _LazyImageClipItem(ClipItem):
+    """A history row whose PNG is read only when something actually needs it.
+
+    Listing used to pull every image blob of the 200 newest rows on each panel
+    open and each search keystroke (screenshots are 1-5 MB each). Thumbnails
+    are cached by content_hash, so most opens never touch the blob at all."""
+
+    _loader = None
+
+    @property
+    def image_data(self):
+        value = self.__dict__.get("_image_data", _NOT_LOADED)
+        if value is _NOT_LOADED:
+            value = self._loader(self.id) if self._loader is not None else None
+            self.__dict__["_image_data"] = value
+        return value
+
+    @image_data.setter
+    def image_data(self, value):
+        self.__dict__["_image_data"] = value
 
 
 @dataclass
@@ -195,6 +225,45 @@ class StorageService:
         self._conn.commit()
         self._migrate_search_text()
         self._migrate_title()
+        self._fts = self._ensure_fts()
+
+    FTS_SCHEMA = """
+    CREATE VIRTUAL TABLE clip_fts USING fts5(
+        search_text, title_search, content='clip_items', content_rowid='id', tokenize='trigram');
+    CREATE TRIGGER IF NOT EXISTS clip_fts_ai AFTER INSERT ON clip_items BEGIN
+        INSERT INTO clip_fts(rowid, search_text, title_search) VALUES (new.id, new.search_text, new.title_search);
+    END;
+    CREATE TRIGGER IF NOT EXISTS clip_fts_ad AFTER DELETE ON clip_items BEGIN
+        INSERT INTO clip_fts(clip_fts, rowid, search_text, title_search) VALUES ('delete', old.id, old.search_text, old.title_search);
+    END;
+    CREATE TRIGGER IF NOT EXISTS clip_fts_au AFTER UPDATE OF search_text, title_search ON clip_items BEGIN
+        INSERT INTO clip_fts(clip_fts, rowid, search_text, title_search) VALUES ('delete', old.id, old.search_text, old.title_search);
+        INSERT INTO clip_fts(rowid, search_text, title_search) VALUES (new.id, new.search_text, new.title_search);
+    END;
+    """
+
+    def _ensure_fts(self) -> bool:
+        """Trigram full-text index over the normalized search columns.
+
+        LIKE '%q%' scanned every row on each keystroke (~45 ms for a rare word in
+        a 3,400-clip history, growing with it). Additive and idempotent; kept in
+        sync by triggers, so older Nexus versions opening the file keep it right.
+        Falls back to LIKE when this SQLite has no FTS5/trigram."""
+        try:
+            exists = self._conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'clip_fts'").fetchone()
+            if not exists:
+                self._conn.executescript(self.FTS_SCHEMA)
+                self._conn.execute("INSERT INTO clip_fts(clip_fts) VALUES ('rebuild')")
+                self._conn.commit()
+            return True
+        except sqlite3.Error:
+            self._conn.rollback()
+            return False
+
+    @staticmethod
+    def _fts_phrase(column: str, normalized: str) -> str:
+        return f'{column} : "{normalized.replace(chr(34), chr(34) * 2)}"'
 
     def _migrate_title(self) -> None:
         """Additive and idempotent: databases created before titles existed get
@@ -318,10 +387,20 @@ class StorageService:
         self._conn.commit()
         return stored if cur.rowcount else None
 
+    def _list_columns(self) -> str:
+        """Every clip_items column in table order (indexes stay valid), except the
+        image blob, read on demand by _LazyImageClipItem."""
+        cached = getattr(self, "_list_columns_sql", None)
+        if cached is None:
+            names = [row[1] for row in self._conn.execute("PRAGMA table_info(clip_items)")]
+            cached = ", ".join("NULL AS image_data" if n == "image_data" else f"clip_items.{n}" for n in names)
+            self._list_columns_sql = cached
+        return cached
+
     def _select_recent(self, joins: str, where: list, params: list, limit: int) -> list:
         where_sql = f"WHERE {' AND '.join(where)}" if where else ""
         return self._conn.execute(
-            f"""SELECT clip_items.* FROM clip_items {joins} {where_sql}
+            f"""SELECT {self._list_columns()} FROM clip_items {joins} {where_sql}
                 ORDER BY updated_at DESC LIMIT ?""",
             [*params, limit],
         ).fetchall()
@@ -339,11 +418,29 @@ class StorageService:
         # Title matches first, then content-only matches, each most-recent-first.
         # Two ordered passes keep the updated_at index usable (a CASE in ORDER BY
         # would sort every match) and stop early once `limit` rows are found.
-        pattern = f"%{normalize_for_search(query)}%"
-        rows = self._select_recent(joins, [*where, "title_search LIKE ?"], [*params, pattern], limit)
+        normalized = normalize_for_search(query)
+        pattern = f"%{normalized}%"
+        # Trigrams need >= 3 characters; shorter queries match almost everything
+        # anyway, so LIKE stops after `limit` hits quickly.
+        use_fts = self._fts and len(normalized) >= 3
+        fts = "clip_items.id IN (SELECT rowid FROM clip_fts WHERE clip_fts MATCH ?)"
+        title_cond, title_arg = (fts, self._fts_phrase("title_search", normalized)) if use_fts else ("title_search LIKE ?", pattern)
+        content_cond, content_arg = (fts, self._fts_phrase("search_text", normalized)) if use_fts else ("search_text LIKE ?", pattern)
+        try:
+            rows = self._select_recent(joins, [*where, title_cond], [*params, title_arg], limit)
+        except sqlite3.OperationalError:
+            if not use_fts:
+                raise
+            # A query FTS5 cannot parse (control characters...): plain LIKE instead.
+            self._fts, fallback = False, None
+            try:
+                fallback = self.recent(limit, query, pinboard_id)
+            finally:
+                self._fts = True
+            return fallback
         remaining = limit - len(rows)
         if remaining > 0:
-            content_where, content_params = [*where, "search_text LIKE ?"], [*params, pattern]
+            content_where, content_params = [*where, content_cond], [*params, content_arg]
             if rows:
                 content_where.append(f"clip_items.id NOT IN ({','.join('?' * len(rows))})")
                 content_params.extend(row[0] for row in rows)
@@ -623,16 +720,24 @@ class StorageService:
         _pinboards_for_items for why this matters."""
         item_ids = [row[0] for row in rows]
         pinboard_map = self._pinboards_for_items(item_ids)
-        return [
-            ClipItem(
+        items = []
+        for row in rows:
+            lazy = row[2] == "image" and row[4] is None   # listed without its blob
+            item = (_LazyImageClipItem if lazy else ClipItem)(
                 id=row[0], content_hash=row[1], kind=row[2], text_content=row[3],
-                image_data=row[4], file_path=row[5], source_app=row[6],
+                image_data=_NOT_LOADED if lazy else row[4], file_path=row[5], source_app=row[6],
                 created_at=row[7], updated_at=row[8],
                 pinboard_ids=pinboard_map.get(row[0], []),
                 title=row[self._title_index],
             )
-            for row in rows
-        ]
+            if lazy:
+                item._loader = self._load_image_data
+            items.append(item)
+        return items
+
+    def _load_image_data(self, item_id: int) -> Optional[bytes]:
+        row = self._conn.execute("SELECT image_data FROM clip_items WHERE id = ?", (item_id,)).fetchone()
+        return row[0] if row else None
 
     @staticmethod
     def _row_to_pinboard(row) -> Optional[Pinboard]:

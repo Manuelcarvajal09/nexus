@@ -314,7 +314,9 @@ class WindowsClipCardDelegate(ClipCardDelegate):
         painter.setClipRect(body, Qt.ClipOperation.IntersectClip)
         preview = self._preview_data.get(item.id) or {}
         text = item.text_content or ""
-        image = item.image_data if detected == "image" else preview.get("og_image") if detected in ("url", "youtube") else None
+        # Image rows are listed without their blob: only read it if the thumbnail
+        # for this exact size is not cached yet (see storage._LazyImageClipItem).
+        image = (item.kind == "image") if detected == "image" else preview.get("og_image") if detected in ("url", "youtube") else None
         # A title and domain are more useful than a tiny OG strip. Keep both
         # readable in compact mode rather than squeezing three regions together.
         if detected in ("url", "youtube") and body.height() < 96:
@@ -323,10 +325,17 @@ class WindowsClipCardDelegate(ClipCardDelegate):
         if image:
             height = int(body.height() if detected == "image" else max(16, body.height() * .42))
             dpr = painter.device().devicePixelRatioF()
-            thumb = thumbnails.rounded_rect_thumbnail(f"win:{item.content_hash}:{detected}", image,
-                                                      max(1, round(body.width() * dpr)), max(1, round(height * dpr)), round(7 * dpr))
-            painter.drawPixmap(QRectF(body.left(), body.top(), body.width(), height), thumb, QRectF(thumb.rect()))
-            text_rect.setTop(body.top() + height + 6)
+            key = f"win:{item.content_hash}:{detected}"
+            size = (max(1, round(body.width() * dpr)), max(1, round(height * dpr)), round(7 * dpr))
+            thumb = thumbnails.cached_rounded_rect(key, *size)
+            if thumb is None:
+                data = item.image_data if detected == "image" else image
+                thumb = thumbnails.rounded_rect_thumbnail(key, data, *size) if data else None
+            if thumb is not None:
+                painter.drawPixmap(QRectF(body.left(), body.top(), body.width(), height), thumb, QRectF(thumb.rect()))
+                text_rect.setTop(body.top() + height + 6)
+            else:
+                image = None
         if detected in ("url", "youtube"):
             domain = preview.get("domain") or urlparse(text if "://" in text else "https://" + text).hostname or text
             title = preview.get("title") or domain

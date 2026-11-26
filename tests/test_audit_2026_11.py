@@ -131,3 +131,79 @@ def test_stack_order_uses_plain_words(qapp, storage):
     window._set_order_control()
     assert window._order_btn.text() == "Inverso" and "FIFO" not in window._order_btn.toolTip()
     window.close()
+
+
+# -- pending items, second pass ------------------------------------------------
+
+def test_fts_search_is_literal_and_tracks_updates_and_deletes(storage):
+    assert storage._fts
+    a = storage.capture(kind="text", text_content="reunión con el equipo de diseño")
+    b = storage.capture(kind="text", text_content="ore_code helper")
+    storage.capture(kind="text", text_content="oreXcode distractor")
+    ids = lambda q: {i.id for i in storage.recent(query=q)}
+    assert ids("reunion") == {a.id}            # accents folded, like before
+    assert ids("ore_c") == {b.id}              # '_' is a character, not a LIKE wildcard
+    storage.set_title(b.id, "Snippet favorito")
+    assert ids("favorito") == {b.id}
+    storage.enrich_search_text(a.id, "Planeación Q4")
+    assert ids("planeacion") == {a.id}
+    storage.delete(a.id)
+    assert ids("reunion") == set()
+    assert {i.id for i in storage.recent(query="o")} >= {b.id}   # < 3 chars: LIKE path
+
+
+def test_fts_unparsable_query_falls_back_to_like(storage):
+    item = storage.capture(kind="text", text_content='comillas "raras" y \x01control')
+    assert item.id in {i.id for i in storage.recent(query='"raras" y \x01')}
+
+
+def test_listing_does_not_load_image_blobs_until_needed(storage):
+    image = storage.capture(kind="image", image_data=b"\x89PNG-fake-bytes")
+    listed = next(i for i in storage.recent() if i.id == image.id)
+    assert "_image_data" in listed.__dict__ and listed.__dict__["_image_data"] is not b"\x89PNG-fake-bytes"
+    assert listed.image_data == b"\x89PNG-fake-bytes"      # loaded on first access
+    storage.delete(image.id)
+    assert listed.image_data == b"\x89PNG-fake-bytes"      # already loaded: undo keeps it
+    assert storage.restore_item(listed).image_data == b"\x89PNG-fake-bytes"
+
+
+def test_elevated_target_is_reported_not_faked(monkeypatch):
+    service = paste.WindowsPasteService()
+    reasons = []
+    service._on_paste_failed = reasons.append
+    service._target = FocusTarget(0x111, 0x112, 1, 4242)
+    service._busy, service._write_sequence, service._started_at = True, 7, time.perf_counter()
+    monkeypatch.setattr(paste, "clipboard_sequence", lambda: 7)
+    monkeypatch.setattr(paste, "restore_focus_target", lambda target, pid: True)
+    monkeypatch.setattr(paste.WindowsPasteService, "modifiers_down", staticmethod(lambda: False))
+    monkeypatch.setattr(paste, "input_blocked_by_uipi", lambda pid: pid == 4242)
+    monkeypatch.setattr(service, "_send_ctrl_v", lambda: pytest.fail("keys sent to an elevated app"))
+    service._restore_and_send()
+    assert reasons and "administrador" in reasons[0] and not service._busy
+
+
+def test_link_previews_can_be_turned_off(storage):
+    from nexus_linux.preview_service import PreviewService
+    service = PreviewService(storage)
+    service.network_enabled = False
+    assert service.request(1, "https://example.com/", False) is None and not service._inflight
+
+
+def test_large_images_encode_off_thread_and_keep_copy_order(qapp, storage, monkeypatch):
+    from PySide6.QtCore import QMimeData, QThreadPool
+    from PySide6.QtGui import QImage
+    from nexus_linux import windows_clipboard as module
+    from tests.test_windows_clipboard_safety import provider
+    cb, seq, callbacks, monitor, captured = provider(monkeypatch, storage)
+    monitor.ASYNC_IMAGE_ENCODE = True
+    image = QImage(1200, 800, QImage.Format.Format_ARGB32); image.fill(0xFF336699)
+    seq[0] += 1; cb.bitmap = image; cb.mime = QMimeData(); cb.mime.setImageData(image); cb.dataChanged.emit()
+    seq[0] += 1; cb.mime = QMimeData(); cb.mime.setText("copied right after"); cb.dataChanged.emit()
+    assert captured == []          # the text waits behind the image being encoded
+    QThreadPool.globalInstance().waitForDone(5000)
+    for _ in range(50):
+        qapp.processEvents()
+        if len(captured) == 2:
+            break
+    assert [i.kind for i in captured] == ["image", "text"]
+    assert QImage.fromData(captured[0].image_data, "PNG").size() == image.size()

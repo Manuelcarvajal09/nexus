@@ -1,4 +1,4 @@
-# Auditoría UX/UI de Nexus (Windows) — 2026-11-06
+﻿# Auditoría UX/UI de Nexus (Windows) — 2026-11-06
 
 Punto de recuperación: tag `nexus-pre-ux-transformation-2026-11-06` (rama `windows-native`, d0ff159).
 Rama de trabajo: `ux-transformation`. Todo con datos sintéticos; la instancia y base reales no se tocaron.
@@ -160,8 +160,18 @@ Instalada hoy: `v3-d0ff159` (25-oct), un mes por detrás de esta rama.
 
 Contrastes medidos (texto/panel): todos los temas ≥ 5:1 en texto, atenuado y acento.
 
-### No hecho / pendiente
-- `recent()` sigue cargando los blobs de imagen (hoy 1,9 MB en las 200 recientes: impacto bajo); mover a miniaturas persistidas si crece.
-- Búsqueda con `LIKE '%q%'` sin FTS; codificación PNG en el hilo de UI.
-- Apps elevadas (UIPI): ahora el mensaje lo explica, pero no se detecta antes de enviar.
-- Validación nativa real (pegado entre apps, Win+L con el Stack activo): no ejecutada; solo tests con dobles y capturas offscreen.
+### Segunda pasada: pendientes resueltos (rama `audit/pendientes-2026-11`)
+Medido sobre una copia de la base real (3431 clips):
+| Problema | Antes | Arreglo | Después |
+|---|---|---|---|
+| Copiar una captura 4K congelaba la UI (y podía tumbar el hook de Ctrl+V) | 692 ms en el hilo de UI | PNG en un hilo aparte; lo copiado mientras tanto espera en cola, el orden se conserva | 0 ms en el hilo de UI |
+| Búsqueda recorría todo el historial en cada tecla | hasta 46 ms; `_`/`%` actuaban de comodín (fallo) | Índice FTS5 trigram con triggers; LIKE solo para <3 letras o consultas que FTS no entiende | ~1 ms en búsquedas raras; 307 consultas reales, 0 diferencias |
+| El listado leía el PNG completo de cada imagen | todas las de las 200 recientes en cada apertura/tecla | Se listan sin blob; se lee solo si la miniatura no está en caché o al pegar/deshacer | — |
+| Apps de administrador: el pegado «se aceptaba» pero Windows lo tiraba | `INPUT_ACCEPTED` falso | Se detecta la elevación antes de enviar: el contenido queda copiado y se avisa; el Stack no intercepta Ctrl+V en esas apps | — |
+| Vista previa de enlaces sin control | siempre activa | Interruptor en Configuración › Captura (activo por defecto; nunca visita enlaces con códigos) | — |
+
+Primera apertura tras actualizar: crea el índice de búsqueda una vez (~2 s con esta base).
+
+### Sigue sin verificar
+- Validación nativa real (pegado entre apps, Win+L con el Stack activo, app de administrador real): solo tests con dobles y capturas offscreen.
+- Versión Linux (`linux/`, rama `nexus-2.0`): no recibe estos arreglos; tiene cambios sin commitear ajenos a esta auditoría.

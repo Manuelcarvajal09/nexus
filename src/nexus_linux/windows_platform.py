@@ -2,6 +2,7 @@
 from __future__ import annotations
 import ctypes
 import os
+import time
 from ctypes import wintypes
 from dataclasses import dataclass
 
@@ -49,6 +50,7 @@ kernel32.CreateMutexW.restype = wintypes.HANDLE
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 kernel32.CloseHandle.restype = wintypes.BOOL
 kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+kernel32.GetCurrentProcess.restype = wintypes.HANDLE
 kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
 kernel32.OpenProcess.restype = wintypes.HANDLE
 kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
@@ -173,6 +175,60 @@ def is_shell_surface(hwnd: int) -> bool:
     Opening Nexus from the tray icon makes the taskbar the foreground window;
     remembering it sent the later Ctrl+V into the taskbar (nothing pasted)."""
     return window_class_name(hwnd) in SHELL_SURFACE_CLASSES
+
+
+advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+advapi32.OpenProcessToken.restype = wintypes.BOOL
+advapi32.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+advapi32.GetTokenInformation.restype = wintypes.BOOL
+_TOKEN_QUERY, _TOKEN_ELEVATION = 0x0008, 20
+_elevation_cache: dict[int, tuple[bool, float]] = {}
+
+
+def _token_elevated(process_handle) -> bool | None:
+    token = wintypes.HANDLE()
+    if not advapi32.OpenProcessToken(process_handle, _TOKEN_QUERY, ctypes.byref(token)):
+        return None
+    try:
+        value, size = wintypes.DWORD(), wintypes.DWORD()
+        if not advapi32.GetTokenInformation(token, _TOKEN_ELEVATION, ctypes.byref(value), 4, ctypes.byref(size)):
+            return None
+        return bool(value.value)
+    finally:
+        kernel32.CloseHandle(token)
+
+
+def current_process_elevated() -> bool:
+    return bool(_token_elevated(kernel32.GetCurrentProcess()))
+
+
+def process_is_elevated(pid: int) -> bool:
+    """True when Windows will drop Nexus' synthetic input to this process (UIPI).
+
+    A process Nexus cannot even query (limited information) runs at a higher
+    integrity level too. Only meaningful while Nexus itself is not elevated."""
+    if not pid or pid == os.getpid():
+        return False
+    cached = _elevation_cache.get(pid)
+    if cached is not None and time.monotonic() - cached[1] < 30:   # PIDs get reused: short TTL
+        return cached[0]
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        result = ctypes.get_last_error() == 5   # ERROR_ACCESS_DENIED: higher integrity
+    else:
+        try:
+            result = bool(_token_elevated(handle))
+        finally:
+            kernel32.CloseHandle(handle)
+    if len(_elevation_cache) > 256:
+        _elevation_cache.clear()
+    _elevation_cache[pid] = (result, time.monotonic())
+    return result
+
+
+def input_blocked_by_uipi(pid: int) -> bool:
+    return process_is_elevated(pid) and not current_process_elevated()
 
 
 def _dword_format(name: str) -> int | None:

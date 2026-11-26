@@ -336,7 +336,7 @@ def qss() -> str:
     QLabel#statusOk {{ color: {p.accent}; font-size: 11px; }}
     QLabel#statusError {{ color: {status_error()}; font-size: 11px; }}
     QKeySequenceEdit#keyEdit QLineEdit {{ padding: 6px 10px; border-radius: 9px; font-size: 12px; font-weight: 600; }}
-    QPushButton#captureToggle, QPushButton#autostartToggle {{ padding: 8px 16px; font-size: 12px; }}
+    QPushButton#captureToggle, QPushButton#autostartToggle, QPushButton#previewsToggle {{ padding: 8px 16px; font-size: 12px; }}
     QDialog#detailsDialog {{ background: {menu_bg}; border: 1px solid {control_border_hover}; }}
     QLabel#detailKey {{ color: {p.faint}; font-size: 11px; }}
     QLabel#detailValue {{ color: {p.text}; font-size: 12px; }}

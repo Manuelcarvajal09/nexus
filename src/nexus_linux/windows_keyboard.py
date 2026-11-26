@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from ctypes import wintypes
 from PySide6.QtCore import QObject, Signal
 from . import windows_sandbox
-from .windows_platform import NEXUS_INPUT_MARKER, FocusTarget, capture_focus_target
+from .windows_platform import NEXUS_INPUT_MARKER, FocusTarget, capture_focus_target, input_blocked_by_uipi
 
 WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN, WM_KEYUP, WM_SYSKEYUP, WM_QUIT = 13, 0x0100, 0x0104, 0x0101, 0x0105, 0x0012
 VK_CONTROL, VK_V, LLKHF_INJECTED = 0x11, 0x56, 0x10
@@ -112,10 +112,13 @@ class WindowsPasteWatcher(QObject):
                 def down(keys):
                     return any(modifier_down(self._modifiers.get(k), bool(user32.GetAsyncKeyState(k)&0x8000)) for k in keys)
                 if not own and event.vkCode == VK_V:
+                    target = capture_focus_target() if not self._v_down else None
+                    if target is not None and input_blocked_by_uipi(target.process_id):
+                        target = None   # elevated app: Nexus cannot paste there, leave Ctrl+V native
                     if self.decide(int(wparam), int(event.vkCode), int(event.dwExtraInfo),
                                    ctrl=down((0x11,0xA2,0xA3)),
                                    other_modifier=down((0x10,0xA0,0xA1,0x12,0xA4,0xA5,0x5B,0x5C)),
-                                   target=capture_focus_target() if not self._v_down else None):
+                                   target=target):
                         return 1
             return user32.CallNextHookEx(self._hook,code,wparam,lparam)
         self._callback=callback

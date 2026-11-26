@@ -7,6 +7,7 @@ from PySide6.QtGui import QGuiApplication, QImage
 from .windows_platform import (
     NEXUS_INPUT_MARKER, VK_V, FocusTarget, capture_focus_target,
     restore_focus_target, clipboard_sequence, foreground_window, is_shell_surface,
+    input_blocked_by_uipi,
 )
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -34,6 +35,7 @@ class PasteResult(str, Enum):
     FOCUS_RESTORE_FAILED = "FOCUS_RESTORE_FAILED"
     CLIPBOARD_WRITE_FAILED = "CLIPBOARD_WRITE_FAILED"
     INPUT_FAILED = "INPUT_FAILED"
+    ELEVATED_TARGET = "ELEVATED_TARGET"
     CANCELLED = "CANCELLED"
 
 class WindowsPasteService(QObject):
@@ -203,6 +205,11 @@ class WindowsPasteService(QObject):
                 else:
                     self._queue_restore(10)
                 return
+            if input_blocked_by_uipi(getattr(self._target, "process_id", 0)):
+                # Windows silently drops synthetic keys sent to an elevated app; it used to
+                # be logged as INPUT_ACCEPTED. The app is focused and the content copied.
+                self._finish(PasteResult.ELEVATED_TARGET, restore_overlay=False)
+                return
             try:
                 sent = self._send_ctrl_v()
             except Exception as exc:
@@ -266,6 +273,7 @@ class WindowsPasteService(QObject):
             PasteResult.CLIPBOARD_WRITE_FAILED:"No se pegó: otra aplicación está usando el portapapeles. Inténtalo de nuevo en un momento.",
             PasteResult.INPUT_ACCEPTED:"Windows aceptó Ctrl+V; Nexus no puede verificar que la aplicación destino insertara el contenido",
             PasteResult.INPUT_FAILED:"No se pegó: Windows bloqueó la pulsación (pasa con aplicaciones abiertas como administrador). El contenido ya está copiado: pulsa Ctrl+V.",
+            PasteResult.ELEVATED_TARGET:"No se pegó solo: esa aplicación está abierta como administrador y Windows no deja que Nexus escriba en ella. El contenido ya está copiado: pulsa Ctrl+V.",
             PasteResult.CANCELLED:"Operación cancelada para conservar el portapapeles actual",
         }.get(result,"")
     def _finish(self,result, restore_overlay=True):

@@ -212,6 +212,20 @@ def test_capture_toggle_pauses_and_resumes_the_clipboard_monitor_setting(env):
     assert settings["paused"] is False
 
 
+def test_link_preview_toggle_saves_and_stops_network_requests(env):
+    window, backend, _, settings, _ = env
+    from types import SimpleNamespace
+    preview = SimpleNamespace(network_enabled=True)
+    backend.previews = (preview,)
+    toggle = window._settings_page.previews_toggle
+    assert toggle.isChecked() and toggle.text() == "Vista previa de enlaces activada"
+    toggle.click()
+    assert settings["link_previews"] is False and load_settings()["link_previews"] is False
+    assert preview.network_enabled is False and toggle.text() == "Vista previa de enlaces desactivada"
+    toggle.click()
+    assert preview.network_enabled is True
+
+
 def test_theme_buttons_request_the_theme_and_follow_external_changes(env):
     window, *_ = env
     requested = []

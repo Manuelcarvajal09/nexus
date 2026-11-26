@@ -240,6 +240,15 @@ class SettingsPage(QWidget):
         self.capture_toggle.toggled.connect(self._capture_toggled)
         body.addWidget(self.capture_toggle, alignment=Qt.AlignmentFlag.AlignLeft)
         body.addWidget(self._sub("En pausa, Nexus no guarda nada nuevo en el historial. Lo ya guardado no cambia."))
+        # Link previews contact the copied site: make that visible and optional.
+        self.previews_toggle = QPushButton()
+        self.previews_toggle.setObjectName("previewsToggle")
+        self.previews_toggle.setCheckable(True)
+        self.previews_toggle.toggled.connect(self._previews_toggled)
+        body.addWidget(self.previews_toggle, alignment=Qt.AlignmentFlag.AlignLeft)
+        self.previews_hint = self._sub("Para mostrar título e imagen de un enlace copiado, Nexus visita esa página. "
+                                       "Nunca abre enlaces con códigos o claves (restablecer contraseña, inicios de sesión).")
+        body.addWidget(self.previews_hint)
 
         # -- start with Windows (off by default) ----------------------------
         body.addSpacing(windows_design.INTERNAL_GAP)
@@ -304,7 +313,24 @@ class SettingsPage(QWidget):
         self._sync_capture_text()
         self._sync_autostart()
         self._sync_optical()
+        self._sync_previews()
         self._after_change()
+
+    def _sync_previews(self):
+        available = hasattr(self.backend, "link_previews")
+        self.previews_toggle.setVisible(available)
+        self.previews_hint.setVisible(available)
+        if available:
+            self.previews_toggle.blockSignals(True)
+            self.previews_toggle.setChecked(bool(self.backend.link_previews()))
+            self.previews_toggle.blockSignals(False)
+            self.previews_toggle.setText("Vista previa de enlaces activada" if self.previews_toggle.isChecked()
+                                         else "Vista previa de enlaces desactivada")
+            self.previews_toggle.setAccessibleName(self.previews_toggle.text())
+
+    def _previews_toggled(self, active):
+        self.backend.set_link_previews(active)
+        self._sync_previews()
 
     AUTOSTART_HINT = "Nexus empieza al iniciar sesión en Windows. Solo para tu usuario; puedes desactivarlo cuando quieras."
 

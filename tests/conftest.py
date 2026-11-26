@@ -56,7 +56,7 @@ def isolate_global_input_state(monkeypatch):
 
 
 class FakeRunKey:
-    """In-memory stand-in for HKCU\...\Run: tests must never read or write the real registry."""
+    r"""In-memory stand-in for HKCU\...\Run: tests must never read or write the real registry."""
 
     def __init__(self):
         self.values = {}
