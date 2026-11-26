@@ -188,6 +188,9 @@ class StorageService:
         # default (0) turns any brief contention into a visible failure.
         self._conn.execute("PRAGMA journal_mode = WAL")
         self._conn.execute("PRAGMA busy_timeout = 5000")
+        # Deleted clips (passwords copied by mistake, purged history) are zeroed
+        # on disk instead of lingering in free pages until overwritten.
+        self._conn.execute("PRAGMA secure_delete = ON")
         self._conn.executescript(SCHEMA)
         self._conn.commit()
         self._migrate_search_text()
@@ -389,7 +392,27 @@ class StorageService:
             (cutoff,),
         )
         self._conn.commit()
+        self.compact_if_bloated()
         return cur.rowcount
+
+    COMPACT_MIN_FREE_BYTES = 32 * 1024 * 1024
+    COMPACT_MIN_FREE_RATIO = 0.4
+
+    def compact_if_bloated(self) -> bool:
+        """VACUUM once free pages dominate the file (never ran before: a real
+        history reached 187 MB holding ~55 MB of clips). Also drops content
+        deleted before secure_delete existed. Best effort: skipped when busy."""
+        try:
+            page_size = self._conn.execute("PRAGMA page_size").fetchone()[0]
+            pages = self._conn.execute("PRAGMA page_count").fetchone()[0]
+            free = self._conn.execute("PRAGMA freelist_count").fetchone()[0]
+            if free * page_size < self.COMPACT_MIN_FREE_BYTES or free < pages * self.COMPACT_MIN_FREE_RATIO:
+                return False
+            self._conn.execute("VACUUM")
+            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            return True
+        except sqlite3.Error:
+            return False
 
     # -- Nexus Stack session recovery --------------------------------------
 

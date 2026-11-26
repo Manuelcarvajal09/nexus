@@ -31,10 +31,12 @@ import json
 import logging
 import socket
 import ssl
+import time
+from http.client import HTTPException
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from http.client import HTTPConnection, HTTPSConnection
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, quote, urljoin, urlparse
 
 log = logging.getLogger("nexus.preview")
 
@@ -76,7 +78,11 @@ def _is_safe_ip(ip_str: str) -> bool:
         ip = ipaddress.ip_address(ip_str)
     except ValueError:
         return False
-    return not (
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    # is_global also rejects shared/CGNAT space (100.64.0.0/10, e.g. Tailscale)
+    # and 6to4/ORCHID ranges that the is_private test let through.
+    return ip.is_global and not (
         ip.is_private or ip.is_loopback or ip.is_link_local
         or ip.is_multicast or ip.is_reserved or ip.is_unspecified
     )
@@ -166,7 +172,10 @@ def _fetch_once(url: str) -> tuple[str, bytes]:
 
         chunks = []
         total = 0
+        deadline = time.monotonic() + TOTAL_TIMEOUT_S
         while True:
+            if time.monotonic() > deadline:
+                raise PreviewError("respuesta demasiado lenta")
             chunk = response.read(65536)
             if not chunk:
                 break
@@ -195,8 +204,38 @@ def fetch_url(url: str) -> tuple[str, bytes]:
         try:
             return _fetch_once(current)
         except _Redirect as redirect:
+            if urlparse(current).scheme == "https" and urlparse(redirect.location).scheme != "https":
+                raise PreviewError("redirect de https a http rechazado")
             current = redirect.location
+        except PreviewError:
+            raise
+        except (OSError, ValueError, HTTPException) as exc:
+            # Timeouts, resets, TLS errors, bad headers: a normal "no preview",
+            # recorded as failed instead of being retried on every refresh.
+            raise PreviewError(f"error de red: {type(exc).__name__}") from exc
     raise PreviewError("demasiados redirects")
+
+
+# Query keys that usually mark a one-time or secret link (password reset, magic
+# login, signed download, OAuth code). Fetching such a link for a preview can
+# consume it or leak it to the server's logs, so it is never requested.
+SENSITIVE_QUERY_KEYS = frozenset({
+    "token", "access_token", "id_token", "code", "key", "apikey", "api_key", "secret",
+    "password", "pwd", "pass", "otp", "auth", "session", "sid", "signature", "sig",
+    "x-amz-signature", "x-goog-signature", "reset", "magic", "invite", "ticket",
+})
+SENSITIVE_PATH_WORDS = ("reset", "magic", "verify", "confirm", "unsubscribe", "activate", "login", "signin", "oauth")
+
+
+def is_sensitive_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.username or parsed.password:
+        return True
+    keys = {key.lower() for key, _ in parse_qsl(parsed.query, keep_blank_values=True)}
+    if keys & SENSITIVE_QUERY_KEYS:
+        return True
+    path = parsed.path.lower()
+    return any(word in path for word in SENSITIVE_PATH_WORDS)
 
 
 # -- HTML metadata extraction ---------------------------------------------
@@ -288,7 +327,9 @@ def _fetch_image_safely(image_url: str) -> bytes | None:
         content_type, body = fetch_url(image_url)
     except PreviewError:
         return None
-    if not content_type.startswith("image/"):
+    # Only the common raster formats: no SVG/TIFF/other decoders fed with remote bytes.
+    if content_type not in ("image/png", "image/jpeg", "image/gif", "image/webp", "image/x-icon",
+                            "image/vnd.microsoft.icon"):
         return None
     return body
 
@@ -307,7 +348,7 @@ def fetch_youtube_preview(url: str) -> LinkPreview:
     domain = _extract_domain(url)
     preview = LinkPreview(url=url, domain=domain, youtube=True)
 
-    oembed_url = f"{YOUTUBE_OEMBED_ENDPOINT}?url={url}&format=json"
+    oembed_url = f"{YOUTUBE_OEMBED_ENDPOINT}?url={quote(url, safe='')}&format=json"
     try:
         content_type, body = fetch_url(oembed_url)
     except PreviewError as exc:
@@ -333,6 +374,9 @@ def fetch_youtube_preview(url: str) -> LinkPreview:
 def fetch_preview(url: str, *, is_youtube: bool) -> LinkPreview:
     """Single entry point used by preview_service.py -- picks the right
     strategy so callers don't need to know about oEmbed vs. OG scraping."""
+    if is_sensitive_url(url):
+        # Domain-only card, no request at all (see SENSITIVE_QUERY_KEYS).
+        return LinkPreview(url=url, domain=_extract_domain(url), youtube=is_youtube)
     if is_youtube:
         return fetch_youtube_preview(url)
     return fetch_link_preview(url)

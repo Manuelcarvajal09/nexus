@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import hashlib, logging, os, sys
+import hashlib, logging, logging.handlers, os, sys, time
 from contextlib import ExitStack
 from pathlib import Path
 from PySide6.QtCore import QAbstractNativeEventFilter, QTimer, Qt, qVersion
@@ -288,9 +288,12 @@ class TrayController:
         self.tray.activated.connect(self._activated)
         stack_window.collecting_changed.connect(lambda _active: self.refresh())
         backend.on_capture_changed(lambda _paused: self.refresh())
+        # State changes refresh through the signals above; this slow tick only
+        # catches visibility changes that emit nothing (it used to run 4x/s forever).
         self._timer = QTimer(app)
         self._timer.timeout.connect(self.refresh)
-        self._timer.start(250)
+        self._timer.start(2000)
+        self._shown_state = None
         self.refresh()
 
     def _activated(self, reason):
@@ -307,11 +310,30 @@ class TrayController:
     def refresh(self):
         active = self.stack_window.is_collecting()
         hidden = active and not self.stack_window.isVisible()
+        state = (active, hidden, self.backend.capture_paused())
+        if state == getattr(self, "_shown_state", None):
+            return   # nothing changed: no menu/tooltip/icon churn in explorer
+        self._shown_state = state
         self.stack_action.setText("Stack activo · oculto" if hidden else "Stack activo" if active else "Nexus Stack · en pausa")
         paused = self.backend.capture_paused()
         self.capture_action.setText("Reanudar captura del portapapeles" if paused else "Pausar captura del portapapeles")
         self.tray.setToolTip("Nexus · captura en pausa" + self._suffix if paused else "Nexus" + self._suffix)
         self.tray.setIcon(tray_icon(paused))
+
+    NOTICE_INTERVAL_S = 8.0
+
+    def notify_paste_failure(self, reason):
+        """Tell the user when a paste did not happen (it used to fail silently, H01/H09).
+
+        Cancellations are the user's own doing (dismiss, new copy) and stay quiet;
+        repeated failures are rate-limited so a burst cannot flood the tray."""
+        if not reason or reason.startswith("Operación cancelada"):
+            return
+        now = time.monotonic()
+        if now - getattr(self, "_last_notice", -1e9) < self.NOTICE_INTERVAL_S:
+            return
+        self._last_notice = now
+        self.tray.showMessage("Nexus", reason, _TRAY_WARNING, 6000)
 
     def show(self, notices=()):
         self.tray.show()
@@ -364,7 +386,9 @@ def main():
 def _run_windows(lifetime):
     windows_sandbox.assert_isolated()
     paths.ensure_dirs()
-    handler = logging.FileHandler(paths.LOG_PATH, encoding="utf-8")
+    # Timestamps make intermittent failures traceable; rotation caps the file (it grew unbounded).
+    handler = logging.handlers.RotatingFileHandler(paths.LOG_PATH, maxBytes=1_000_000, backupCount=1, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     handler.addFilter(ClipboardPrivacyFilter())
     root = logging.getLogger()
     root.setLevel(logging.INFO)
@@ -574,6 +598,7 @@ def _run_windows(lifetime):
         show_pinboards=show_pinboards, show_settings=show_settings, apply_theme=apply_theme,
     )
     tray_controller.show(notices)
+    paste._on_paste_failed = tray_controller.notify_paste_failure
     lifetime.callback(tray_controller.close)
     app.aboutToQuit.connect(lifetime.close)
     if os.environ.get("NEXUS_OPEN_ON_START") == "1":

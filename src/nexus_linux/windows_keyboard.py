@@ -24,6 +24,27 @@ user32.UnhookWindowsHookEx.argtypes = [wintypes.HANDLE]
 user32.PostThreadMessageW.argtypes = [wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
+MODIFIER_FRESH_S = 0.25   # how long a recorded modifier event outranks the async key state
+HOOK_REFRESH_MS = 15000    # re-install the low-level hook this often (Windows drops slow hooks silently)
+WM_TIMER = 0x0113
+
+
+def modifier_down(recorded, physical):
+    """Whether a modifier counts as held for the V event being decided.
+
+    A recorded hook event is trusted only while fresh (the async state may lag
+    behind it for a few ms). Afterwards the real key state wins: Windows does
+    not deliver key-ups to the hook across Win+L, UAC or Ctrl+Alt+Del, and a
+    stale "Win is down" used to make every later Ctrl+V look like Win+Ctrl+V,
+    so the Stack silently stopped intercepting until Nexus restarted."""
+    if recorded is None:
+        return physical
+    is_down, at = recorded
+    if time.monotonic() - at < MODIFIER_FRESH_S:
+        return is_down
+    return physical
+
+
 @dataclass(frozen=True)
 class PasteRequest:
     event_id: str
@@ -87,9 +108,9 @@ class WindowsPasteWatcher(QObject):
                 if not own and key in (0x11,0xA2,0xA3,0x10,0xA0,0xA1,0x12,0xA4,0xA5,0x5B,0x5C):
                     # Async state for the changing key is not yet updated in
                     # LowLevelKeyboardProc. Record prior physical key events.
-                    self._modifiers[key] = int(wparam) in (WM_KEYDOWN, WM_SYSKEYDOWN)
+                    self._modifiers[key] = (int(wparam) in (WM_KEYDOWN, WM_SYSKEYDOWN), time.monotonic())
                 def down(keys):
-                    return any(self._modifiers.get(k, bool(user32.GetAsyncKeyState(k)&0x8000)) for k in keys)
+                    return any(modifier_down(self._modifiers.get(k), bool(user32.GetAsyncKeyState(k)&0x8000)) for k in keys)
                 if not own and event.vkCode == VK_V:
                     if self.decide(int(wparam), int(event.vkCode), int(event.dwExtraInfo),
                                    ctrl=down((0x11,0xA2,0xA3)),
@@ -109,8 +130,18 @@ class WindowsPasteWatcher(QObject):
                 self.set_enabled(False)
                 logging.getLogger("nexus.keyboard").warning("paste_watcher.hook_failed winerror=%s", ctypes.get_last_error())
                 self.hook_failed.emit("Stack detenido: no se pudo registrar Ctrl+V")
+            # Windows removes a low-level hook that once exceeded LowLevelHooksTimeout
+            # (e.g. while the UI thread held the GIL) WITHOUT notifying anyone: the
+            # thread keeps waiting and Ctrl+V is simply no longer seen. Re-install
+            # periodically; the new hook goes in before the old one is removed.
+            timer = user32.SetTimer(None, 0, HOOK_REFRESH_MS, None) if self._hook else 0
             while self._hook and not self._stopping.is_set() and user32.GetMessageW(ctypes.byref(message),None,0,0)>0:
+                if message.message == WM_TIMER and message.hwnd is None:
+                    self._refresh_hook(callback)
+                    continue
                 user32.TranslateMessage(ctypes.byref(message)); user32.DispatchMessageW(ctypes.byref(message))
+            if timer:
+                user32.KillTimer(None, timer)
         finally:
             unexpected_exit = bool(self._hook) and not self._stopping.is_set()
             if self._hook: user32.UnhookWindowsHookEx(self._hook)
@@ -120,6 +151,14 @@ class WindowsPasteWatcher(QObject):
             if unexpected_exit:
                 self.set_enabled(False)
                 self.hook_failed.emit("Stack detenido: el observador Ctrl+V se desconectó")
+    def _refresh_hook(self, callback):
+        if self._v_down or self._stopping.is_set():
+            return   # never swap hooks in the middle of a chord
+        fresh = user32.SetWindowsHookExW(WH_KEYBOARD_LL, callback, None, 0)
+        if not fresh:
+            return   # keep the current hook; try again on the next tick
+        old, self._hook = self._hook, fresh
+        user32.UnhookWindowsHookEx(old)
     def stop(self):
         self.set_enabled(False)
         self._stopping.set()

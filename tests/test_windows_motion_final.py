@@ -177,10 +177,12 @@ def luminance(value):
     return .2126 * r + .7152 * g + .0722 * b
 
 
-@pytest.mark.parametrize("theme", list(windows_design.PALETTES))
+@pytest.mark.parametrize("theme", list(windows_design.PALETTES) + ["liquid_glass_light"])
 def test_status_colours_are_readable_in_every_theme(theme):
-    palette = windows_design.PALETTES[theme]
-    for ink in (windows_design.STATUS_ERROR, palette.accent):   # error and confirmation text
+    light = theme == "liquid_glass_light"
+    palette = windows_design.LIQUID_GLASS_LIGHT if light else windows_design.PALETTES[theme]
+    error = windows_design.STATUS_ERROR_LIGHT if light else windows_design.STATUS_ERROR
+    for ink in (error, palette.accent):   # error and confirmation text
         for background in (palette.panel, palette.card):
             ratio = (max(luminance(ink), luminance(background)) + .05) / (min(luminance(ink), luminance(background)) + .05)
             assert ratio >= 4.5, (theme, ink, background, round(ratio, 2))

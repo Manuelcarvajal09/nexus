@@ -55,6 +55,20 @@ kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD,
 user32.RegisterClipboardFormatW.argtypes = [wintypes.LPCWSTR]
 user32.RegisterClipboardFormatW.restype = wintypes.UINT
 user32.IsClipboardFormatAvailable.argtypes = [wintypes.UINT]
+user32.OpenClipboard.argtypes = [wintypes.HWND]
+user32.OpenClipboard.restype = wintypes.BOOL
+user32.CloseClipboard.argtypes = []
+user32.CloseClipboard.restype = wintypes.BOOL
+user32.GetClipboardData.argtypes = [wintypes.UINT]
+user32.GetClipboardData.restype = wintypes.HANDLE   # 64-bit handle: the default int restype would truncate it
+user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user32.GetClassNameW.restype = ctypes.c_int
+kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+kernel32.GlobalLock.restype = ctypes.c_void_p
+kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+kernel32.GlobalUnlock.restype = wintypes.BOOL
+kernel32.GlobalSize.argtypes = [wintypes.HGLOBAL]
+kernel32.GlobalSize.restype = ctypes.c_size_t
 user32.GetClipboardSequenceNumber.argtypes = []
 user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
 dwmapi.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
@@ -143,10 +157,60 @@ def foreground_process_name() -> str:
     finally:
         kernel32.CloseHandle(handle)
 
+SHELL_SURFACE_CLASSES = frozenset({"Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow",
+                                   "TopLevelWindowForOverflowXamlIsland", "Progman", "WorkerW"})
+
+
+def window_class_name(hwnd: int) -> str:
+    if not hwnd: return ""
+    buffer = ctypes.create_unicode_buffer(256)
+    return buffer.value if user32.GetClassNameW(wintypes.HWND(hwnd), buffer, 256) else ""
+
+
+def is_shell_surface(hwnd: int) -> bool:
+    """Taskbar, tray overflow and desktop: never a meaningful paste target.
+
+    Opening Nexus from the tray icon makes the taskbar the foreground window;
+    remembering it sent the later Ctrl+V into the taskbar (nothing pasted)."""
+    return window_class_name(hwnd) in SHELL_SURFACE_CLASSES
+
+
+def _dword_format(name: str) -> int | None:
+    """Value of a 4-byte registered clipboard format, or None if absent/unreadable."""
+    fmt = user32.RegisterClipboardFormatW(name)
+    if not fmt or not user32.IsClipboardFormatAvailable(fmt):
+        return None
+    if not user32.OpenClipboard(None):
+        return None
+    try:
+        handle = user32.GetClipboardData(fmt)
+        if not handle:
+            return None
+        pointer = kernel32.GlobalLock(handle)
+        if not pointer:
+            return None
+        try:
+            if kernel32.GlobalSize(handle) < 4:
+                return None
+            return ctypes.c_uint32.from_address(pointer).value
+        finally:
+            kernel32.GlobalUnlock(handle)
+    finally:
+        user32.CloseClipboard()
+
+
 def clipboard_requests_exclusion() -> bool:
-    for name in ("ExcludeClipboardContentFromMonitorProcessing",):
+    """Honour every opt-out Windows defines for clipboard monitors and history.
+
+    Password managers and browsers mark secrets with one or more of these; the
+    first one alone (the only one checked before) misses e.g. apps that only set
+    CanIncludeInClipboardHistory=0, so their passwords were stored in history."""
+    for name in ("ExcludeClipboardContentFromMonitorProcessing", "Clipboard Viewer Ignore"):
         fmt = user32.RegisterClipboardFormatW(name)
         if fmt and user32.IsClipboardFormatAvailable(fmt): return True
+    for name in ("CanIncludeInClipboardHistory", "CanUploadToCloudClipboard"):
+        if _dword_format(name) == 0:
+            return True
     return False
 
 def clipboard_sequence() -> int:

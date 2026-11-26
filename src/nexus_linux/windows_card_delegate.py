@@ -1,16 +1,25 @@
 """Windows-only, virtualized premium cards. No fetching and no per-row widgets."""
 
 import os
+from functools import lru_cache
 from urllib.parse import urlparse
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPersistentModelIndex, QPointF, QRectF, QSize, Qt, QVariantAnimation
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainterPath, QPen
-from PySide6.QtWidgets import QAbstractItemView, QStyle
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPainterPath, QPen
+from PySide6.QtWidgets import QAbstractItemView, QStyle, QToolTip
 
 from . import relative_time, thumbnails, type_detection, windows_design
 from .timeline_delegate import CARD_MARGIN, TYPE_LABELS, ClipCardDelegate, _parse_color
 from .timeline_model import ITEM_ROLE
 from .windows_design import MOTION_HOVER_MS
+
+
+@lru_cache(maxsize=1024)
+def _detect(kind, text):
+    """type_detection.detect() runs json.loads/splitlines over the whole clip; it
+    used to run on every paint of every card (each hover frame). Strings cache
+    their own hash, so a hit costs a dict lookup."""
+    return type_detection.detect(kind, text)
 
 
 def _mix(first, second, amount):
@@ -214,6 +223,24 @@ class WindowsClipCardDelegate(ClipCardDelegate):
                              Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, part)
         painter.restore()
 
+    @classmethod
+    def badge_rect(cls, card_rect):
+        """The quick-paste number (1-9) in a card's header."""
+        outer = QRectF(card_rect.adjusted(CARD_MARGIN, CARD_MARGIN, -CARD_MARGIN, -CARD_MARGIN))
+        header, _, _ = cls._regions(outer)
+        return QRectF(header.right() - 20, header.top() + 1, 20, 19)
+
+    def helpEvent(self, event, view, option, index):
+        # The bare "1".."9" badge says nothing on its own (H06/H10): explain it on hover.
+        if (event.type() == QEvent.Type.ToolTip and index.isValid() and index.row() < 9
+                and self.badge_rect(option.rect).adjusted(-4, -4, 4, 4).contains(QPointF(event.pos()))):
+            number = index.row() + 1
+            shortcut = (getattr(view.window(), "_local_shortcuts", None) or {}).get("quick_paste", {}).get(number)
+            keys = shortcut.key().toString(QKeySequence.SequenceFormat.NativeText) if shortcut is not None else ""
+            QToolTip.showText(event.globalPos(), f"Pegado rápido · {keys or f'Ctrl+{number}'}", view)
+            return True
+        return super().helpEvent(event, view, option, index)
+
     def paint(self, painter, option, index):
         item = index.data(ITEM_ROLE)
         if item is None:
@@ -225,7 +252,7 @@ class WindowsClipCardDelegate(ClipCardDelegate):
         level = self._levels.get(QPersistentModelIndex(index), min(1.0, selected * .65 + hovered * .35))
         outer = QRectF(option.rect.adjusted(CARD_MARGIN, CARD_MARGIN, -CARD_MARGIN, -CARD_MARGIN))
         header, body, footer = self._regions(outer)
-        detected = type_detection.detect(item.kind, item.text_content)
+        detected = _detect(item.kind, item.text_content)
         semantic = {"url": "#6098ce", "youtube": "#6098ce", "code": "#a28bd0", "json": "#a28bd0",
                     "command": "#a28bd0", "image": "#69a98b", "file": "#c39c5d", "path": "#c39c5d"}.get(detected, "#d28b81")
         painter.save()
@@ -264,7 +291,7 @@ class WindowsClipCardDelegate(ClipCardDelegate):
         self._text(painter, header.adjusted(10, 0, -34, 0), TYPE_LABELS.get(detected, "Texto").upper(), 10,
                    tokens.muted, QFont.Weight.DemiBold, spacing=.7)
         if index.row() < 9:
-            badge = QRectF(header.right() - 20, header.top() + 1, 20, 19)
+            badge = self.badge_rect(option.rect)
             painter.setBrush(QColor(tokens.panel_raised))
             painter.drawRoundedRect(badge, 6, 6)
             painter.setFont(windows_design.font(10, weight=QFont.Weight.DemiBold))

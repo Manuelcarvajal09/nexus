@@ -85,7 +85,8 @@ BLOCK_GAP, INTERNAL_GAP = 20, 12
 WORKAREA_SIDE, WORKAREA_BOTTOM = 24, 28
 RADIUS_PANEL, RADIUS_CARD, RADIUS_CONTROL = 22, 16, 10
 MOTION_FAST_MS, MOTION_OPEN_MS, MOTION_PAGE_MS = 90, 130, 90
-STATUS_ERROR = "#F28B82"  # error text: >= 4.5:1 on every theme's panel and card
+STATUS_ERROR = "#F28B82"  # error text on the dark themes: >= 4.5:1 on panel and card
+STATUS_ERROR_LIGHT = "#B42318"  # Liquid Glass Light: the pink above was only 2.2:1 on its pale panel
 MOTION_THEME_MS = 140  # Liquid Glass Light <-> Dark: content eases, the HWND never fades
 MOTION_OPEN_CONTENT_MS = 110  # content easing in when the panel opens (the HWND never fades)
 MOTION_HOVER_MS, MOTION_FOCUS_MS = 150, 110
@@ -107,6 +108,11 @@ def palette() -> Palette:
     if is_light():
         return LIQUID_GLASS_LIGHT
     return PALETTES.get(styles.active_theme().key, PALETTES["liquid_glass"])
+
+
+def status_error() -> str:
+    """Error ink that stays readable (>= 4.5:1) on the active variant."""
+    return STATUS_ERROR_LIGHT if is_light() else STATUS_ERROR
 
 
 def glass() -> Glass | None:
@@ -146,13 +152,20 @@ def font_family() -> str:
     return next((name for name in ("Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", "Arial") if name in available), "Segoe UI")
 
 
-def font(pixel_size=13, weight=QFont.Weight.Normal, mono=False) -> QFont:
-    result = QFont("Consolas" if mono else font_family())
+@lru_cache(maxsize=128)
+def _font(family, pixel_size, weight, mono) -> QFont:
+    result = QFont(family)
     result.setPixelSize(pixel_size)
     result.setWeight(weight)
     if mono:
         result.setStyleHint(QFont.StyleHint.Monospace)
     return result
+
+
+def font(pixel_size=13, weight=QFont.Weight.Normal, mono=False) -> QFont:
+    # Card painting asks for ~5 fonts per card per frame: build each once and hand
+    # out copies (QFont is implicitly shared, so a copy is cheap and safe to modify).
+    return QFont(_font("Consolas" if mono else font_family(), pixel_size, weight, bool(mono)))
 
 
 def motion_enabled() -> bool:
@@ -198,6 +211,8 @@ def _draw_icon(name, color, size, ratio) -> QPixmap:
         painter.drawLine(QPointF(5.5, 8), QPointF(10, 12.5)); painter.drawLine(QPointF(10, 12.5), QPointF(14.5, 8))
     elif name == "chevron_right":
         painter.drawLine(QPointF(8, 5.5), QPointF(12.5, 10)); painter.drawLine(QPointF(12.5, 10), QPointF(8, 14.5))
+    elif name == "chevron_left":
+        painter.drawLine(QPointF(12, 5.5), QPointF(7.5, 10)); painter.drawLine(QPointF(7.5, 10), QPointF(12, 14.5))
     elif name == "check":
         painter.drawLine(QPointF(4.5, 10.5), QPointF(8.5, 14.5)); painter.drawLine(QPointF(8.5, 14.5), QPointF(15.5, 6))
     elif name == "plus":
@@ -296,6 +311,8 @@ def qss() -> str:
         min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px; padding: 0; color: {p.muted}; font-size: 18px; }}
     QPushButton#closeButton:hover {{ background: {soft_hover}; border-color: {control_border}; color: {p.text}; }}
     QPushButton#closeButton:focus {{ border-color: {p.accent}; }}
+    QToolButton#edgeHint {{ background: {menu_bg}; border: 1px solid {control_border_hover}; border-radius: 15px; padding: 0; }}
+    QToolButton#edgeHint:hover {{ border-color: {p.accent}; }}
     QPushButton[colorSwatch="true"] {{ background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 0; }}
     QPushButton[colorSwatch="true"]:hover {{ background: {p.card_hover}; }}
     QPushButton[colorSwatch="true"]:focus {{ background: {p.accent_fill}; border-color: {p.accent}; }}
@@ -317,7 +334,7 @@ def qss() -> str:
     QLabel#scopePill[scope="global"] {{ background: {p.accent_fill}; color: {p.accent}; }}
     QLabel#keyPill {{ background: transparent; color: {p.muted}; border: 1px dashed {control_border}; border-radius: 9px; padding: 6px 10px; font-size: 12px; }}
     QLabel#statusOk {{ color: {p.accent}; font-size: 11px; }}
-    QLabel#statusError {{ color: {STATUS_ERROR}; font-size: 11px; }}
+    QLabel#statusError {{ color: {status_error()}; font-size: 11px; }}
     QKeySequenceEdit#keyEdit QLineEdit {{ padding: 6px 10px; border-radius: 9px; font-size: 12px; font-weight: 600; }}
     QPushButton#captureToggle, QPushButton#autostartToggle {{ padding: 8px 16px; font-size: 12px; }}
     QDialog#detailsDialog {{ background: {menu_bg}; border: 1px solid {control_border_hover}; }}

@@ -17,7 +17,9 @@ log = logging.getLogger("nexus.clipboard")
 class WindowsClipboardMonitor(QObject):
     captured = Signal(object)
     captured_versioned = Signal(object, object)
-    RETRY_DELAYS = (20, 50, 100, 200)
+    # ~1.6 s in total: Office/Teams/other clipboard tools can hold the clipboard
+    # open longer than the previous ~370 ms, and the copy was then lost silently.
+    RETRY_DELAYS = (20, 50, 100, 200, 400, 800)
 
     def __init__(self, storage, settings=None, parent=None):
         super().__init__(parent)
@@ -54,11 +56,12 @@ class WindowsClipboardMonitor(QObject):
     def _capture(self):
         if not self._running:
             return
-        self._generation += 1
-        generation = self._generation
         self._suppressed = False
         if self._clipboard.ownsClipboard():
+            # Nexus' own write: must not cancel a retry still pending for an external copy.
             return
+        self._generation += 1
+        generation = self._generation
         sequence = clipboard_sequence()
         if sequence and sequence == self._last_sequence:
             return
@@ -91,6 +94,8 @@ class WindowsClipboardMonitor(QObject):
             if attempt < len(self.RETRY_DELAYS):
                 QTimer.singleShot(self.RETRY_DELAYS[attempt],
                     lambda: self._read(generation, sequence, source_app, attempt + 1))
+            else:
+                log.warning("capture.dropped reason=unreadable attempts=%s", attempt + 1)
             return
         try:
             item = self._storage.capture(source_app=source_app, **payload)

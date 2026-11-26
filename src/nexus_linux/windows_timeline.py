@@ -5,7 +5,7 @@ behavior is retained; the embedded editor and layout are Windows-only.
 """
 
 import os
-from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, QRect, QRectF, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QDialog, QDialogButtonBox, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QMenu, QMessageBox,
@@ -28,6 +28,66 @@ from .windows_motion import SearchFocusHighlight, WindowsMotion, fade_in
 from .windows_backdrop import configure_native_host, handle_native_host_event
 from .windows_platform import (activate_foreground_window, capture_focus_target, foreground_window,
                                restore_focus_target, window_process_id)
+
+
+class _EdgeHints:
+    """Round chevrons over the ends of the card strip while more cards exist that way.
+
+    The strip has no visible scrollbar at desktop widths, so cards past the edge
+    used to be invisible with nothing hinting at them (H01/H06). A click scrolls
+    one page; the hints hide at either end and never take keyboard focus."""
+
+    def __init__(self, view):
+        self._view = view
+        self._buttons = {}
+        for side in ("left", "right"):
+            button = QToolButton(view)
+            button.setObjectName("edgeHint")
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setFixedSize(30, 30)
+            button.setIconSize(QSize(16, 16))
+            button.setToolTip("Ver más recientes" if side == "left" else "Ver más antiguos")
+            button.setAccessibleName(button.toolTip())
+            button.clicked.connect(lambda _checked=False, side=side: self._page(-1 if side == "left" else 1))
+            button.hide()
+            self._buttons[side] = button
+        bar = view.horizontalScrollBar()
+        bar.valueChanged.connect(self.sync)
+        bar.rangeChanged.connect(self.sync)
+        view.installEventFilter(_EdgeHintFilter(self, view))
+        self.apply_theme()
+
+    def apply_theme(self):
+        color = windows_design.palette().text
+        self._buttons["left"].setIcon(windows_design.icon("chevron_left", color, 16))
+        self._buttons["right"].setIcon(windows_design.icon("chevron_right", color, 16))
+
+    def _page(self, direction):
+        bar = self._view.horizontalScrollBar()
+        bar.setValue(bar.value() + direction * max(bar.pageStep(), 1))
+
+    def sync(self, *_):
+        bar = self._view.horizontalScrollBar()
+        rect = self._view.rect()
+        middle = rect.center().y() - 15
+        self._buttons["left"].move(rect.left() + 6, middle)
+        self._buttons["right"].move(rect.right() - 36, middle)
+        self._buttons["left"].setVisible(bar.maximum() > 0 and bar.value() > bar.minimum())
+        self._buttons["right"].setVisible(bar.maximum() > 0 and bar.value() < bar.maximum())
+        for button in self._buttons.values():
+            button.raise_()
+
+
+class _EdgeHintFilter(QObject):
+    def __init__(self, hints, parent):
+        super().__init__(parent)
+        self._hints = hints
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+            self._hints.sync()
+        return False
 
 
 class _InlineEditor(QWidget):
@@ -488,6 +548,7 @@ class WindowsTimelineWindow(TimelineWindow):
         # At compact widths the icon-mode row must remain reachable instead of
         # silently clipping the trailing card; only this Windows view changes.
         self._sync_history_scrollbar()
+        self._edge_hints = _EdgeHints(self._list)
         self._empty_label.setTextFormat(Qt.TextFormat.PlainText)
         self._empty_label.setWordWrap(True)
 
@@ -603,6 +664,8 @@ class WindowsTimelineWindow(TimelineWindow):
         self._surface.update()
         self._brand.setPixmap(windows_design.icon("brand", p.accent, 24).pixmap(24, 24))
         self._close_btn.setIcon(windows_design.icon("close", p.muted, 16))
+        if getattr(self, "_edge_hints", None) is not None:
+            self._edge_hints.apply_theme()
         self._search_action.setIcon(windows_design.icon("search", p.muted))
         # Drawn chevron (right side) instead of the native menu arrow.
         self._style_btn.setIcon(windows_design.icon("chevron_down", p.muted, 12))

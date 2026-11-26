@@ -6,7 +6,7 @@ from PySide6.QtCore import QMimeData, QObject, QTimer, QUrl, Signal
 from PySide6.QtGui import QGuiApplication, QImage
 from .windows_platform import (
     NEXUS_INPUT_MARKER, VK_V, FocusTarget, capture_focus_target,
-    restore_focus_target, clipboard_sequence, foreground_window,
+    restore_focus_target, clipboard_sequence, foreground_window, is_shell_surface,
 )
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -45,6 +45,11 @@ class WindowsPasteService(QObject):
         self._last_write_sequence=None; self._paste_generation=0
     def remember_target(self):
         candidate=capture_focus_target()
+        if candidate and is_shell_surface(candidate.window):
+            # Taskbar/tray/desktop (e.g. Nexus opened from the tray icon): keep the
+            # last real app instead of sending the paste into the taskbar.
+            log.info("target.skip_shell hwnd=%#x keep=%s", candidate.window, self._target is not None)
+            candidate = None
         if candidate and candidate.process_id != os.getpid():
             self._target=candidate
             log.info("target.remember hwnd=%#x focus=%#x pid=%s tid=%s", candidate.window, candidate.focused_control, candidate.process_id, candidate.thread_id)
@@ -254,11 +259,13 @@ class WindowsPasteService(QObject):
         self.paste_finished.emit(False,reason)
     def _reason(self,result):
         return {
-            PasteResult.TARGET_UNAVAILABLE:"La aplicación destino ya no está disponible",
-            PasteResult.FOCUS_RESTORE_FAILED:"No se pudo recuperar de forma segura el foco destino",
-            PasteResult.CLIPBOARD_WRITE_FAILED:"No se pudo preparar el contenido en el portapapeles",
+            # What happened + what to do (H09). The content stays on the clipboard
+            # whenever the write itself succeeded, so Ctrl+V is always the way out.
+            PasteResult.TARGET_UNAVAILABLE:"No se pegó: la aplicación donde estabas ya no está abierta. Abre Nexus desde esa aplicación e inténtalo otra vez.",
+            PasteResult.FOCUS_RESTORE_FAILED:"No se pegó: Windows no dejó volver a la aplicación anterior. El contenido ya está copiado: pulsa Ctrl+V allí.",
+            PasteResult.CLIPBOARD_WRITE_FAILED:"No se pegó: otra aplicación está usando el portapapeles. Inténtalo de nuevo en un momento.",
             PasteResult.INPUT_ACCEPTED:"Windows aceptó Ctrl+V; Nexus no puede verificar que la aplicación destino insertara el contenido",
-            PasteResult.INPUT_FAILED:"Windows no aceptó la pulsación de pegado",
+            PasteResult.INPUT_FAILED:"No se pegó: Windows bloqueó la pulsación (pasa con aplicaciones abiertas como administrador). El contenido ya está copiado: pulsa Ctrl+V.",
             PasteResult.CANCELLED:"Operación cancelada para conservar el portapapeles actual",
         }.get(result,"")
     def _finish(self,result, restore_overlay=True):

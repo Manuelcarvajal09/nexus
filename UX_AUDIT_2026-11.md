@@ -117,3 +117,51 @@ Ahora: columna reservada con **píldora** a la derecha (`_BoardRowDelegate`); so
 
 ### Pendiente
 Pruebas de captura real, pegado entre apps y Ctrl+V del Stack: ver `CLIPBOARD_TEST_ISOLATION.md` (requiere Windows Sandbox o VM con portapapeles desactivado; no disponible hoy).
+
+---
+## Quinta pasada: auditoría integral (2026-11-26) — rama `audit/fiabilidad-ux-2026-11`
+
+Motivo: «a veces funciona y a veces no». Evidencia: log real (3427 líneas, 499 pegados `INPUT_ACCEPTED`, 17 `target.reject`), lectura de código y capturas de los 5 temas.
+Instalada hoy: `v3-d0ff159` (25-oct), un mes por detrás de esta rama.
+
+### Fiabilidad (causas del «a veces»)
+| Sev | Problema | Arreglo |
+|---|---|---|
+| 4 | Tras Win+L, UAC o Ctrl+Alt+Supr Windows no entrega la tecla soltada al hook: un Win/Alt quedaba «pulsado» para siempre y el Stack dejaba de interceptar Ctrl+V hasta reiniciar | `modifier_down`: el evento grabado solo manda 250 ms; luego, el estado real de la tecla |
+| 4 | Windows retira en silencio un hook lento (`LowLevelHooksTimeout`) y nunca se reinstalaba | Reinstalación cada 15 s (nuevo antes de quitar el viejo, nunca a mitad de un acorde) |
+| 3 | Ctrl+V con el Stack activo y vacío se «tragaba»: no pasaba nada | Se reenvía un Ctrl+V nativo (las pulsaciones encoladas tras vaciarse no se repiten) |
+| 3 | Abrir Nexus desde la bandeja recordaba la barra de tareas como destino: el pegado iba ahí | Se ignoran barra de tareas, desbordamiento y escritorio; se conserva la última app real |
+| 3 | `on_paste_failed` nunca se conectaba: los pegados fallidos eran silenciosos | Aviso en la bandeja con qué pasó y qué hacer (sin cancelaciones, máx. 1 cada 8 s) |
+| 2 | Copias perdidas si otra app tenía el portapapeles abierto >370 ms; una escritura propia cancelaba el reintento pendiente | Reintentos hasta ~1,6 s, `capture.dropped` en el log, la escritura propia ya no cancela |
+| 2 | Log sin hora ni límite | Marca de tiempo y rotación (1 MB + 1 copia) |
+
+### Seguridad
+| Sev | Problema | Arreglo |
+|---|---|---|
+| 3 | Solo se respetaba `ExcludeClipboardContentFromMonitorProcessing`; contraseñas marcadas con `CanIncludeInClipboardHistory=0` se guardaban | También `Clipboard Viewer Ignore`, `CanIncludeInClipboardHistory=0`, `CanUploadToCloudClipboard=0` |
+| 3 | Cada URL copiada recibía un GET: enlaces de un solo uso (reset, magic login, firmados) podían consumirse | Enlaces con token/código/firma/credenciales o rutas de login/reset: tarjeta solo con dominio, sin red |
+| 2 | SSRF: 100.64.0.0/10 (Tailscale/CGNAT) y IPv4 mapeadas pasaban el filtro | Solo direcciones globales |
+| 2 | Errores de red no capturados → reintento en cada refresh; sin tope total; https→http permitido; imágenes de cualquier formato | `PreviewError`, tope de 6 s, redirect https→http rechazado, solo png/jpeg/gif/webp/ico |
+| 2 | Lo borrado seguía en páginas libres (base real: 187 MB, 79 MB libres) | `secure_delete=ON` y `VACUUM` automático cuando lo libre supera 32 MB y 40 % |
+
+### Rendimiento
+- `type_detection.detect()` (con `json.loads`) se ejecutaba en cada pintado de cada tarjeta → caché.
+- Fuentes creadas ~5 veces por tarjeta y fotograma → caché de `QFont`.
+- Temporizador de la bandeja a 250 ms para siempre → 2 s y solo actualiza si cambia algo.
+
+### UX (Cimientos de UX / Nielsen)
+| Sev | Heurística | Problema | Arreglo |
+|---|---|---|---|
+| 2 | H01/H06 | Con 5+ clips, las tarjetas fuera del borde eran invisibles sin pista (sin barra a ≥900 px) | Chevrons «Ver más antiguos/recientes» en los bordes, solo cuando hay más |
+| 2 | H02 | «FIFO/LIFO» en el Stack | «En orden» / «Inverso», con explicación en el tooltip |
+| 2 | Accesibilidad | Texto de error en Liquid Glass claro: contraste 2,2:1 | `#B42318` en claro (≥4,5:1); test ampliado al tema claro |
+| 1 | H06/H10 | El número 1–9 de cada tarjeta no decía para qué sirve | Tooltip «Pegado rápido · Ctrl+N» con el atajo real |
+| 1 | H09 | Mensajes de fallo técnicos («recuperar de forma segura el foco destino») | Dicen qué pasó y cómo seguir (el contenido queda copiado: Ctrl+V) |
+
+Contrastes medidos (texto/panel): todos los temas ≥ 5:1 en texto, atenuado y acento.
+
+### No hecho / pendiente
+- `recent()` sigue cargando los blobs de imagen (hoy 1,9 MB en las 200 recientes: impacto bajo); mover a miniaturas persistidas si crece.
+- Búsqueda con `LIKE '%q%'` sin FTS; codificación PNG en el hilo de UI.
+- Apps elevadas (UIPI): ahora el mensaje lo explica, pero no se detecta antes de enviar.
+- Validación nativa real (pegado entre apps, Win+L con el Stack activo): no ejecutada; solo tests con dobles y capturas offscreen.

@@ -200,7 +200,7 @@ def test_stack_hover_has_no_shared_blur_effect(premium, qapp, paste_service):
         assert row.graphicsEffect() is None and row._shadow is None
         QApplication.sendEvent(row, QEvent(QEvent.Type.Leave))
         assert row.property("hovered") == "false"
-        assert window._order_btn.text() == "FIFO" and not window._order_btn.icon().isNull()
+        assert window._order_btn.text() == "En orden" and not window._order_btn.icon().isNull()
     finally:
         window.hide(); window.deleteLater()
         qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)

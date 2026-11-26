@@ -22,6 +22,7 @@ from .windows_platform import activate_foreground_window
 
 POST_PASTE_SETTLE_MS = 180
 MAX_PENDING_REQUESTS = 16
+ORDER_LABELS = {False: "En orden", True: "Inverso"}   # reversed_order -> user-facing label
 log = logging.getLogger("nexus.stack")
 
 
@@ -243,6 +244,18 @@ class WindowsClipStack(ClipStack):
                 and available == self._available and available.sequence == self._sequence()
                 and any(i.id == available.item_id for i in self._items))
 
+    def _pass_through(self, request, reason):
+        """Re-send a native (marked, hook-ignored) Ctrl+V for a swallowed chord."""
+        service = self.paste_service
+        if service is None or getattr(service, "_busy", False) or not service.target_matches(request.target):
+            return
+        try:
+            sent = service._send_ctrl_v()
+        except Exception as exc:  # noqa: BLE001 - must never break the hook path
+            log.warning("stack.passthrough_failed exception_type=%s", type(exc).__name__)
+            return
+        log.info("stack.passthrough reason=%s sent=%s", reason, sent)
+
     def schedule_real_paste(self, sequence=None, *, schedule=None, on_consumed=None):
         # Observer-era sequence notifications are not proof of a dispatched
         # transaction. Keep the entry point harmless for older integrations.
@@ -251,8 +264,21 @@ class WindowsClipStack(ClipStack):
     def request_paste(self, request, *, schedule=None, on_consumed=None):
         if not isinstance(request, PasteRequest):
             return False
-        if (not self.active or not self.accepting_captures
-                or request.pressed_at < self._invalidated_at
+        if not self.active or not self.accepting_captures:
+            # The hook already swallowed this Ctrl+V (Stack was enabled when V went
+            # down). Never eat the user's keystroke: let the normal paste happen.
+            self._pass_through(request, "inactive")
+            return False
+        self._prune_missing()
+        if (not self._items and self._pending is None and self._manual_pending is None
+                and not self._requests and request.event_id not in self._seen_events):
+            # Nothing queued and nothing to paste: a fresh Ctrl+V on an empty Stack
+            # pastes the clipboard as usual instead of doing nothing. (Chords queued
+            # behind earlier items are NOT replayed once the Stack runs dry.)
+            self._seen_events.append(request.event_id)
+            self._pass_through(request, "empty")
+            return False
+        if (request.pressed_at < self._invalidated_at
                 or request.pressed_at <= self._event_floor
                 or request.event_id in self._seen_events or self._manual_pending is not None
                 or len(self._requests) >= MAX_PENDING_REQUESTS):
@@ -282,6 +308,7 @@ class WindowsClipStack(ClipStack):
         if not valid() or index is None:
             self._requests.clear()
             self.diagnostic("rejected", request)
+            log.info("stack.reject reason=%s", "empty" if index is None else "target_changed")
             return
         item = self._items[index]
         token = object()
@@ -423,6 +450,10 @@ class WindowsStackWindow(StackWindow):
         recovered = sum(item.id in self._stack._restored_ids for item in self._stack.items())
         if recovered:
             self._subtitle.setText(self._subtitle.text() + f" · {recovered} pendiente(s) recuperado(s)")
+        remaining = max(0, count - 1)
+        self._remaining_label.setText(
+            f"{remaining} restante{'s' if remaining != 1 else ''} · {ORDER_LABELS[self._stack.reversed_order].lower()}"
+            if count else "")
         if count:
             self._empty_label.hide()
         else:
@@ -502,12 +533,15 @@ class WindowsStackWindow(StackWindow):
 
     def _set_order_control(self):
         reverse = self._stack.reversed_order
-        self._order_btn.setFixedWidth(72)
-        self._order_btn.setText("LIFO" if reverse else "FIFO")
+        # Plain words instead of FIFO/LIFO (H02): people think "in order" / "last first".
+        self._order_btn.setFixedWidth(104)
+        self._order_btn.setText(ORDER_LABELS[reverse])
         self._order_btn.setStyleSheet("padding: 4px 8px;")
         self._order_btn.setIcon(windows_design.icon("up" if reverse else "down", windows_design.palette().accent, 18))
-        self._order_btn.setToolTip("LIFO · El último copiado se pega primero" if reverse else "FIFO · El primero copiado se pega primero")
-        self._order_btn.setAccessibleName("Orden LIFO" if reverse else "Orden FIFO")
+        self._order_btn.setToolTip(
+            "Se pega primero lo último que copiaste · clic para cambiar" if reverse
+            else "Se pega en el mismo orden en que copiaste · clic para cambiar")
+        self._order_btn.setAccessibleName(f"Orden de pegado: {ORDER_LABELS[reverse]}")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

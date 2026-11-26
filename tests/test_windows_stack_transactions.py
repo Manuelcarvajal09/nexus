@@ -101,9 +101,15 @@ def test_inactive_native_empty_active_suppressed_and_restart(transaction):
     assert not r.hook.decide(keyboard.WM_KEYDOWN, keyboard.VK_V, ctrl=True, target=r.target)
     assert not r.hook.decide(keyboard.WM_KEYUP, keyboard.VK_V)
     r.window.start_collecting()
+    native = []
+    original_send = r.service._send_ctrl_v
+    r.service._send_ctrl_v = lambda: native.append("ctrl+v") or True
     r.chord()
     r.flush()
-    assert not r.sends
+    # Empty Stack: nothing of Nexus is written, but the swallowed Ctrl+V is
+    # re-sent so the user's normal paste still happens (it used to do nothing).
+    assert not r.sends and not r.writes and native == ["ctrl+v"]
+    r.service._send_ctrl_v = original_send
     r.copy("fresh")
     r.chord()
     r.flush()
