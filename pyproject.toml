@@ -1,6 +1,6 @@
 [project]
 name = "nexus-windows"
-version = "0.3.0"
+version = "0.4.0"
 description = "Nexus clipboard manager for Windows"
 requires-python = ">=3.11"
 # Only QtCore/QtGui/QtWidgets (+QtDBus on Linux) are imported: the Essentials wheel is enough.

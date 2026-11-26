@@ -69,7 +69,12 @@ def default_registry():
     return WinRunKey()
 
 
+FROZEN_EXE = "nexus.exe"
+
+
 def launch_command(executable=None) -> str:
+    if executable is None and getattr(sys, "frozen", False):
+        return f'"{sys.executable}"'            # installed Nexus.exe (PyInstaller build)
     exe = Path(executable or sys.executable)
     if exe.name.lower() == "python.exe" and exe.with_name("pythonw.exe").exists():
         exe = exe.with_name("pythonw.exe")      # no console window at login
@@ -96,7 +101,7 @@ def disable(registry=None) -> bool:
 
 
 def is_ours(command) -> bool:
-    return bool(command) and MODULE in command
+    return bool(command) and (MODULE in command or command.strip().strip('"').lower().endswith("\\" + FROZEN_EXE))
 
 
 def sync(enabled: bool, registry=None, command=None) -> str:

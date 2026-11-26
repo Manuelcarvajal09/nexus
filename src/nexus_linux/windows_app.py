@@ -441,9 +441,14 @@ def _run_windows(lifetime):
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     root.addHandler(handler)
+    from . import __version__
+    logging.getLogger("nexus.startup").info("version=%s frozen=%s language=%s pid=%s", __version__,
+                                            bool(getattr(sys, "frozen", False)), i18n.language(), os.getpid())
     for source in ("windows_app.py", "windows_keyboard.py", "windows_stack.py", "windows_paste.py"):
-        digest = hashlib.sha256(Path(__file__).with_name(source).read_bytes()).hexdigest()
-        logging.getLogger("nexus.startup").info("source=%s sha256=%s pid=%s", source, digest, os.getpid())
+        path = Path(__file__).with_name(source)
+        if path.is_file():   # source fingerprints only exist in a source checkout, not in Nexus.exe
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            logging.getLogger("nexus.startup").info("source=%s sha256=%s pid=%s", source, digest, os.getpid())
     lifetime.callback(handler.close)
     lifetime.callback(root.removeHandler, handler)
     set_app_user_model_id()  # before any window: taskbar identity + icon are Nexus', not pythonw's
