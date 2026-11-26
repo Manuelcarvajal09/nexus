@@ -199,6 +199,9 @@ def test_restoring_a_backup_never_loses_clips_captured_afterwards(live):
     new_a = live.storage.capture(kind="text", text_content="after backup A")
     new_b = live.storage.capture(kind="text", text_content="after backup B")
     again = live.storage.capture(kind="text", text_content="original 3")          # re-copied: newer timestamp
+    # Windows' clock ticks every ~15 ms: make "newer" strictly true instead of a coin toss.
+    live.storage._conn.execute("UPDATE clip_items SET updated_at = ? WHERE id = ?", (new_b.updated_at + 1, again.id))
+    live.storage._conn.commit()
     live.storage.set_title(new_a.id, "Título nuevo")
     live.storage.set_title(again.id, "Título de uno viejo")
     extra = live.storage.create_pinboard("Nuevo tablero", "#007AFF")

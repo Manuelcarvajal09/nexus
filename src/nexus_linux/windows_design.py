@@ -149,7 +149,7 @@ def font_family() -> str:
             if (directory / name).is_file():
                 QFontDatabase.addApplicationFont(str(directory / name))
     available = set(QFontDatabase.families())
-    return next((name for name in ("Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", "Arial") if name in available), "Segoe UI")
+    return next((name for name in ("Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", "Inter", "Noto Sans", "Cantarell", "DejaVu Sans", "Arial") if name in available), "Segoe UI")
 
 
 @lru_cache(maxsize=128)

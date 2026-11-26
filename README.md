@@ -58,7 +58,7 @@ Nexus never sends your clipboard anywhere. Everything lives in one SQLite file u
 | | Status | Get it |
 |---|---|---|
 | **Windows 11** | ✅ Main build, English and Spanish | [Installer (.exe)](https://github.com/Manuelcarvajal09/nexus/releases/latest) |
-| **Linux** (Wayland: Hyprland, KDE) | 🧪 Early build, Spanish interface | From source, branch [`linux/auditoria-2026-11`](https://github.com/Manuelcarvajal09/nexus/tree/linux/auditoria-2026-11) |
+| **Linux** (Wayland: Hyprland, KDE) | 🧪 Early access, same code base as Windows | From source: `python -m nexus_linux.app` (add `NEXUS_UI=shared` for the new shared interface) |
 | **macOS** | 🛠️ Native original (Swift) being brought into this repository | Coming soon, see [MACOS.md](MACOS.md) |
 
 Requirements, packaging and install options for each system: [docs/PLATFORMS.md](docs/PLATFORMS.md). The plan to ship all three from one codebase: [ROADMAP_1.0.md](ROADMAP_1.0.md).

@@ -43,7 +43,7 @@ WINDOWS_ONLY_TESTS = {
 
 
 def pytest_ignore_collect(collection_path, config):
-    if sys.platform == "win32":
+    if sys.platform == "win32" or os.environ.get("NEXUS_RUN_ALL_TESTS") == "1":
         return None
     name = collection_path.name
     if name.startswith("test_windows_") or name in WINDOWS_ONLY_TESTS:

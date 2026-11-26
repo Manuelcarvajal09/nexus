@@ -137,7 +137,16 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
     )
     # One main surface owns History and Pinboards; Stack remains independent.
     preview_service = PreviewService(storage, parent=app, allow_network=settings.network_previews)
-    timeline = TimelineWindow(storage, paste_service, preview_service)
+    from . import linux_shared
+    shared_ui = linux_shared.wants_shared_ui()
+    if shared_ui:
+        # Unification phase 2: the same panel, Settings, themes and languages as Windows.
+        timeline, _settings_backend = linux_shared.build_shared_panel(
+            storage, paste_service, preview_service, monitor, lambda key: apply_theme(key))
+        app.setStyleSheet(linux_shared.shared_stylesheet())
+        log.info("Interfaz compartida (NEXUS_UI=shared)")
+    else:
+        timeline = TimelineWindow(storage, paste_service, preview_service)
 
     clip_stack = ClipStack(storage=storage, paste_service=paste_service)
     restored_count = clip_stack.load_persisted(arm=False)
@@ -199,10 +208,18 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
 
     def show_library() -> None:
         paste_service.remember_target()
+        if shared_ui:
+            if not timeline.isVisible():
+                timeline.show_and_focus()
+            timeline.show_pinboard_management()
+            return
         timeline.show_pinboards()
         timeline.show_and_focus()
 
-    timeline.library_requested.connect(show_library)
+    if shared_ui:
+        timeline.manage_pinboards_requested.connect(show_library)
+    else:
+        timeline.library_requested.connect(show_library)
 
     menu = QMenu()
     open_action = menu.addAction("Abrir Nexus")
@@ -215,7 +232,8 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
 
     from .appearance import AppearanceDialog
     appearance = AppearanceDialog(apply=lambda key: apply_theme(key), parent=timeline, capture_changed=monitor.configure)
-    timeline.appearance_requested.connect(appearance.show)
+    if not shared_ui:   # the shared panel has these options in its own Settings page
+        timeline.appearance_requested.connect(appearance.show)
     appearance_action = menu.addAction("Apariencia…")
     appearance_action.triggered.connect(appearance.show)
     theme_menu = menu.addMenu("Tema")
@@ -224,12 +242,16 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
     def apply_theme(key: str) -> None:
         styles.set_active_theme(key)
         styles.clear_icon_cache()
-        app.setStyleSheet(styles.qss() + product_ui.qss())
+        app.setStyleSheet(linux_shared.shared_stylesheet() if shared_ui else styles.qss() + product_ui.qss())
         for action, action_key in theme_actions.items():
             action.setChecked(action_key == key)
         stack_window.refresh()
-        timeline._board_panel.refresh()
-        timeline.refresh()
+        if shared_ui:
+            timeline.set_theme_selection(key)
+            timeline.apply_visual_theme()
+        else:
+            timeline._board_panel.refresh()
+            timeline.refresh()
 
     for theme_key, theme_label in styles.theme_choices():
         theme_action = theme_menu.addAction(theme_label)
@@ -248,7 +270,7 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
             last_palette = current_palette
             if styles.active_theme().key in ("auto", "caelestia") and caelestia_theme.apply():
                 styles.clear_icon_cache()
-                app.setStyleSheet(styles.qss() + product_ui.qss())
+                app.setStyleSheet(linux_shared.shared_stylesheet() if shared_ui else styles.qss() + product_ui.qss())
                 timeline.refresh()
                 stack_window.refresh()
         theme_timer = QTimer(app)
@@ -316,12 +338,30 @@ async def _run(app: QApplication, close_event: asyncio.Event) -> None:
     storage.close()
 
 
+RESTART_ENV = "NEXUS_RESTARTING"
+
+
+def restart_application() -> None:
+    """Relaunch with the same command line (e.g. after changing the language).
+    The new process waits for this one to release the single-instance lock."""
+    import subprocess
+    argv = list(getattr(sys, "orig_argv", None) or [sys.executable, *sys.argv])
+    subprocess.Popen(argv, env={**os.environ, RESTART_ENV: "1"}, start_new_session=True)
+    QApplication.instance().quit()
+
+
 def main() -> int:
     os.umask(0o077)
     _setup_logging()
     _install_exception_hook()
 
     lock_file = _acquire_single_instance_lock()
+    if lock_file is None and os.environ.pop(RESTART_ENV, None) == "1":
+        for _ in range(50):   # the previous instance is shutting down: wait up to ~5 s
+            time.sleep(0.1)
+            lock_file = _acquire_single_instance_lock()
+            if lock_file is not None:
+                break
     if lock_file is None:
         return 0
 

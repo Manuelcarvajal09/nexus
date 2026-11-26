@@ -1,12 +1,12 @@
 # Platforms: status and app requirements
 
-Nexus has three builds today. They share the product (history, pinboards, Nexus Stack, themes) but not yet one codebase; see [ROADMAP_1.0.md](../ROADMAP_1.0.md) for the unification plan.
+Windows and Linux now build from the same code on `main` and share one test suite (CI runs it on both). Linux can already run the same interface as Windows (`NEXUS_UI=shared`); the classic Linux panel stays the default until that is validated on real Wayland desktops. macOS is still the separate Swift original. See [ROADMAP_1.0.md](../ROADMAP_1.0.md).
 
 | | Windows | Linux | macOS |
 |---|---|---|---|
-| Code | `main` (this branch), Python + Qt 6 | [`linux/auditoria-2026-11`](https://github.com/Manuelcarvajal09/nexus/tree/linux/auditoria-2026-11), Python + Qt 6 | Original Swift/SwiftUI app, not yet in this repository |
+| Code | `main`, Python + Qt 6 | `main` (same code; `nexus_linux.app`), Python + Qt 6 | Original Swift/SwiftUI app, not yet in this repository |
 | Status | Main build, released | Early build, Wayland (Hyprland/KDE) | Private original; to be reviewed and published |
-| Interface language | English / Spanish (automatic) | Spanish | Spanish |
+| Interface language | English / Spanish (automatic) | English / Spanish with the shared interface; Spanish in the classic panel | Spanish |
 | Installer | `Nexus-Setup-<version>.exe` | Not yet | Not yet |
 
 Legend below: ✅ done · 🟡 partial · ❌ missing.

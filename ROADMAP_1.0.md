@@ -54,6 +54,8 @@ src/nexus/
     macos/     NSPasteboard, CGEvent paste (Accessibility), hotkeys, login item, vibrancy
 ```
 
+Progress: **step 1 is done** (Linux merged onto `main`, one test suite on both systems, Windows modules importable anywhere) and **step 3's interface half is done for Linux**: `NEXUS_UI=shared` runs the Windows panel, Settings, themes and languages on Linux with Linux services (XDG autostart, desktop-owned global shortcuts, Linux capture and preview preferences). Left: make it the Linux default after testing on Hyprland/KDE/GNOME, move the Stack onto the shared window with a Wayland delivery adapter, delete the classic Linux panel, and the `core/ui/platform` reorganisation.
+
 Steps, each one shippable on its own:
 
 1. Move the Linux branch onto `main` behind the `platform/linux` adapter; delete duplicated UI modules in favour of the Windows ones, which are the most polished (themes, cards, Settings, i18n).

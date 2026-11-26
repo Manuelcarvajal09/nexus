@@ -289,4 +289,8 @@ CATALOG = {
     "En pausa": "Paused",
     "Stack detenido: no se pudo registrar Ctrl+V": "Stack stopped: Ctrl+V could not be registered",
     "Stack detenido: el observador Ctrl+V se desconectó": "Stack stopped: the Ctrl+V watcher disconnected",
+    "En Linux este atajo global lo gestiona tu escritorio (Hyprland, KDE o GNOME): cámbialo allí.":
+        "On Linux this global shortcut belongs to your desktop (Hyprland, KDE or GNOME): change it there.",
+    "Gestor de portapapeles": "Clipboard manager",
+    "No se pudo cambiar el inicio con la sesión. Inténtalo de nuevo.": "Could not change start with your session. Try again.",
 }
