@@ -21,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 # needs no real display/compositor, so this is safe in CI and on a headless
 # runner alike.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# The suite asserts the Spanish source texts; tests/test_i18n.py covers English.
+os.environ["NEXUS_LANGUAGE"] = "es"
 
 import pytest
 

@@ -179,7 +179,8 @@ def motion_enabled() -> bool:
 
 
 def theme_choices():
-    return [(key, {"liquid_glass": "Liquid Glass", "midnight_teal": "Midnight Teal"}.get(key, label))
+    from .i18n import tr
+    return [(key, {"liquid_glass": "Liquid Glass", "midnight_teal": "Midnight Teal"}.get(key, tr(label)))
             for key, label in styles.theme_choices()]
 
 

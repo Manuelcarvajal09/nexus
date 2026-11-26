@@ -55,16 +55,25 @@ def main():
         windows_design.font_family()
         app.setStyleSheet(windows_design.qss()); app.setFont(windows_design.font())
         storage = StorageService(sandbox / "synthetic.sqlite")
-        board = storage.create_pinboard("Mercado Libre", "#F0C56E", None)
-        storage.create_pinboard("Ideas", "#BBA8FF", None); storage.create_pinboard("Trabajo", "#80B5EE", None)
+        from nexus_linux import i18n
+        english = i18n.language() == "en"   # sample data follows NEXUS_LANGUAGE, like the interface
+        sample = {
+            "boards": ("Shopping", "Ideas", "Work") if english else ("Compras", "Ideas", "Trabajo"),
+            "text": ("Good ideas deserve a place.\n\nDesign with intent. Keep what matters. Come back when you need it."
+                     if english else "Las buenas ideas merecen un lugar.\n\nDiseña con intención. Guarda lo importante. Vuelve cuando lo necesites."),
+            "title": "Create function" if english else "Función de creación",
+            "snipping": "Snipping Tool" if english else "Recortes",
+        }
+        board = storage.create_pinboard(sample["boards"][0], "#F0C56E", None)
+        storage.create_pinboard(sample["boards"][1], "#BBA8FF", None); storage.create_pinboard(sample["boards"][2], "#80B5EE", None)
         storage.capture(kind="file", file_path="C:/Projects/Brand guidelines.pdf", source_app="Explorer")
         code = storage.capture(kind="text", text_content='const create = (idea) => {\n  return design(idea);\n};', source_app="VS Code")
         storage.capture(kind="text", text_content="#8BAEDB", source_app="Figma")
         link = storage.capture(kind="url", text_content="https://example.com/studio", source_app="Edge")
-        image = storage.capture(kind="image", image_data=synthetic_image(), source_app="Recortes")
-        text = storage.capture(kind="text", text_content="Las buenas ideas merecen un lugar.\n\nDiseña con intención. Guarda lo importante. Vuelve cuando lo necesites.", source_app="Notepad")
+        image = storage.capture(kind="image", image_data=synthetic_image(), source_app=sample["snipping"])
+        text = storage.capture(kind="text", text_content=sample["text"], source_app="Notepad")
         storage.add_to_pinboard(image.id, board.id); storage.add_to_pinboard(text.id, board.id)
-        storage.set_title(code.id, "Función de creación")
+        storage.set_title(code.id, sample["title"])
         for (row_id,) in storage._conn.execute("SELECT id FROM clip_items").fetchall():
             storage._conn.execute("UPDATE clip_items SET updated_at = ? WHERE id = ?", (time.time() - (text.id - row_id), row_id))
         storage._conn.commit()

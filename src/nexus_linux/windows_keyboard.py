@@ -4,6 +4,7 @@ import ctypes, logging, os, threading, time, uuid
 from dataclasses import dataclass
 from ctypes import wintypes
 from PySide6.QtCore import QObject, Signal
+from .i18n import plural, tr
 from . import windows_sandbox
 from .windows_platform import NEXUS_INPUT_MARKER, FocusTarget, capture_focus_target, input_blocked_by_uipi
 
@@ -132,7 +133,7 @@ class WindowsPasteWatcher(QObject):
             if not self._hook:
                 self.set_enabled(False)
                 logging.getLogger("nexus.keyboard").warning("paste_watcher.hook_failed winerror=%s", ctypes.get_last_error())
-                self.hook_failed.emit("Stack detenido: no se pudo registrar Ctrl+V")
+                self.hook_failed.emit(tr("Stack detenido: no se pudo registrar Ctrl+V"))
             # Windows removes a low-level hook that once exceeded LowLevelHooksTimeout
             # (e.g. while the UI thread held the GIL) WITHOUT notifying anyone: the
             # thread keeps waiting and Ctrl+V is simply no longer seen. Re-install
@@ -157,7 +158,7 @@ class WindowsPasteWatcher(QObject):
             if unexpected_exit:
                 logging.getLogger("nexus.keyboard").warning("paste_watcher.unexpected_exit")
                 self.set_enabled(False)
-                self.hook_failed.emit("Stack detenido: el observador Ctrl+V se desconectó")
+                self.hook_failed.emit(tr("Stack detenido: el observador Ctrl+V se desconectó"))
     def _refresh_hook(self, callback):
         if self._v_down or self._stopping.is_set():
             return   # never swap hooks in the middle of a chord

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json, os, shutil, time
+from .i18n import plural, tr
 from . import paths
 
 DEFAULTS = {
@@ -36,5 +37,5 @@ def load_settings():
 def vk_for(shortcut: str) -> int:
     normalized = shortcut.upper().replace(" ", "")
     if not normalized.startswith("CTRL+SHIFT+") or len(normalized) != len("CTRL+SHIFT+") + 1:
-        raise ValueError("Solo se admiten atajos Ctrl+Shift+<tecla>")
+        raise ValueError(tr("Solo se admiten atajos Ctrl+Shift+<tecla>"))
     return ord(normalized[-1])

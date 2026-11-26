@@ -13,11 +13,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QKeySequenceEdit, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
-from . import windows_design
+from .i18n import plural, tr
+from . import i18n, windows_design
 from .windows_shortcuts import GLOBAL, SPECS, normalize
 
 _RESET_WIDTH = 92
-_DISPLAY = {"Del": "Supr / Retroceso", "Esc": "Esc", "Enter": "Enter", "Shift+Enter": "Mayús+Enter"}
+_DISPLAY = {"Del": tr("Supr / Retroceso"), "Esc": "Esc", "Enter": "Enter", "Shift+Enter": tr("Mayús+Enter")}
 
 
 def display_key(text: str) -> str:
@@ -78,11 +79,11 @@ class _ShortcutRow(QWidget):
         text.addWidget(self.label)
         text.addWidget(self.description)
         line.addLayout(text, 1)
-        self.scope = QLabel("Global" if spec.scope == GLOBAL else "En Nexus")
+        self.scope = QLabel(tr("Global") if spec.scope == GLOBAL else tr("En Nexus"))
         self.scope.setObjectName("scopePill")
         self.scope.setProperty("scope", spec.scope)
-        self.scope.setToolTip("Funciona desde cualquier aplicación" if spec.scope == GLOBAL
-                              else "Funciona cuando Nexus tiene el foco")
+        self.scope.setToolTip(tr("Funciona desde cualquier aplicación") if spec.scope == GLOBAL
+                              else tr("Funciona cuando Nexus tiene el foco"))
         # Fixed widths keep the key column aligned across editable and fixed rows.
         self.scope.setFixedWidth(68)
         self.scope.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -91,15 +92,15 @@ class _ShortcutRow(QWidget):
         self.reset_button = None
         if spec.editable:
             self.edit = _KeyEdit()
-            self.edit.setAccessibleName(f"Atajo de {spec.label}")
+            self.edit.setAccessibleName(tr("Atajo de {label}", label=spec.label))
             self.edit.editingFinished.connect(self._finished)
             self.edit.capture_started.connect(page._capture_started)
             self.edit.capture_finished.connect(page._capture_finished)
             self.edit.cancelled.connect(self._cancel)
             line.addWidget(self.edit, 0, Qt.AlignmentFlag.AlignVCenter)
-            self.reset_button = QPushButton("Restablecer")
+            self.reset_button = QPushButton(tr("Restablecer"))
             self.reset_button.setObjectName("flat")
-            self.reset_button.setAccessibleName(f"Restablecer el atajo de {spec.label}")
+            self.reset_button.setAccessibleName(tr("Restablecer el atajo de {label}", label=spec.label))
             self.reset_button.clicked.connect(self._reset)
             self.reset_button.setFixedWidth(_RESET_WIDTH)
             line.addWidget(self.reset_button, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -129,7 +130,7 @@ class _ShortcutRow(QWidget):
         self.reset_button.setEnabled(not store.is_default(self.spec.id))
         problem = self._page.backend.status(self.spec.id)
         if problem:
-            self.show_status(f"No registrado: {problem}", error=True)
+            self.show_status(tr("No registrado: {problem}", problem=problem), error=True)
 
     def show_status(self, text, error=False):
         self.status.setObjectName("statusError" if error else "statusOk")
@@ -146,7 +147,7 @@ class _ShortcutRow(QWidget):
             return
         result = self._page.backend.change_shortcut(self.spec.id, text)
         self.refresh()
-        self.show_status(f"Guardado: {result.value}" if result.ok else result.message, error=not result.ok)
+        self.show_status(tr("Guardado: {value}", value=result.value) if result.ok else result.message, error=not result.ok)
         self._page._after_change()
         self.edit.clearFocus()  # leaving the field resumes every shortcut right away
 
@@ -158,7 +159,7 @@ class _ShortcutRow(QWidget):
     def _reset(self):
         result = self._page.backend.reset_shortcut(self.spec.id)
         self.refresh()
-        self.show_status(f"Restablecido: {result.value}" if result.ok else result.message, error=not result.ok)
+        self.show_status(tr("Restablecido: {value}", value=result.value) if result.ok else result.message, error=not result.ok)
         self._page._after_change()
 
 
@@ -174,14 +175,14 @@ class SettingsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(windows_design.BLOCK_GAP)
-        self.back_button = QPushButton("Volver")
+        self.back_button = QPushButton(tr("Volver"))
         self.back_button.setObjectName("expandToggle")
         self.back_button.clicked.connect(self.back_requested.emit)
         # "Volver" + the page's own name, so Configuración reads as a place.
         top = QHBoxLayout()
         top.setSpacing(windows_design.BLOCK_GAP)
         top.addWidget(self.back_button)
-        page_title = QLabel("Configuración")
+        page_title = QLabel(tr("Configuración"))
         page_title.setObjectName("settingsPageTitle")
         top.addWidget(page_title)
         top.addStretch(1)
@@ -202,9 +203,9 @@ class SettingsPage(QWidget):
 
         # -- shortcuts ----------------------------------------------------
         head = QHBoxLayout()
-        title = self._heading("Atajos de teclado")
+        title = self._heading(tr("Atajos de teclado"))
         head.addWidget(title, 1)
-        self.reset_all_button = QPushButton("Restablecer todos")
+        self.reset_all_button = QPushButton(tr("Restablecer todos"))
         self.reset_all_button.setObjectName("flat")
         self.reset_all_button.clicked.connect(self._reset_all)
         head.addWidget(self.reset_all_button)
@@ -222,8 +223,8 @@ class SettingsPage(QWidget):
         self.summary.hide()
         body.addWidget(self.summary)
         self.rows = {}
-        for scope, caption in ((GLOBAL, "Globales · funcionan desde cualquier aplicación"),
-                               ("local", "Con Nexus abierto")):
+        for scope, caption in ((GLOBAL, tr("Globales · funcionan desde cualquier aplicación")),
+                               ("local", tr("Con Nexus abierto"))):
             body.addWidget(self._sub(caption))
             for spec in SPECS:
                 if spec.scope == scope:
@@ -233,44 +234,44 @@ class SettingsPage(QWidget):
 
         # -- capture --------------------------------------------------------
         body.addSpacing(windows_design.INTERNAL_GAP)
-        body.addWidget(self._heading("Captura del portapapeles"))
+        body.addWidget(self._heading(tr("Captura del portapapeles")))
         self.capture_toggle = QPushButton()
         self.capture_toggle.setObjectName("captureToggle")
         self.capture_toggle.setCheckable(True)
         self.capture_toggle.toggled.connect(self._capture_toggled)
         body.addWidget(self.capture_toggle, alignment=Qt.AlignmentFlag.AlignLeft)
-        body.addWidget(self._sub("En pausa, Nexus no guarda nada nuevo en el historial. Lo ya guardado no cambia."))
+        body.addWidget(self._sub(tr("En pausa, Nexus no guarda nada nuevo en el historial. Lo ya guardado no cambia.")))
         # Link previews contact the copied site: make that visible and optional.
         self.previews_toggle = QPushButton()
         self.previews_toggle.setObjectName("previewsToggle")
         self.previews_toggle.setCheckable(True)
         self.previews_toggle.toggled.connect(self._previews_toggled)
         body.addWidget(self.previews_toggle, alignment=Qt.AlignmentFlag.AlignLeft)
-        self.previews_hint = self._sub("Para mostrar título e imagen de un enlace copiado, Nexus visita esa página. "
-                                       "Nunca abre enlaces con códigos o claves (restablecer contraseña, inicios de sesión).")
+        self.previews_hint = self._sub(tr("Para mostrar título e imagen de un enlace copiado, Nexus visita esa página. "
+                                       "Nunca abre enlaces con códigos o claves (restablecer contraseña, inicios de sesión)."))
         body.addWidget(self.previews_hint)
 
         # -- start with Windows (off by default) ----------------------------
         body.addSpacing(windows_design.INTERNAL_GAP)
-        body.addWidget(self._heading("Inicio"))
+        body.addWidget(self._heading(tr("Inicio")))
         self.autostart_toggle = QPushButton()
         self.autostart_toggle.setObjectName("autostartToggle")
         self.autostart_toggle.setCheckable(True)
         self.autostart_toggle.toggled.connect(self._autostart_toggled)
         body.addWidget(self.autostart_toggle, alignment=Qt.AlignmentFlag.AlignLeft)
-        self.autostart_hint = self._sub("Nexus empieza al iniciar sesión en Windows. Solo para tu usuario; puedes desactivarlo cuando quieras.")
+        self.autostart_hint = self._sub(tr("Nexus empieza al iniciar sesión en Windows. Solo para tu usuario; puedes desactivarlo cuando quieras."))
         body.addWidget(self.autostart_hint)
 
         # -- appearance -----------------------------------------------------
         body.addSpacing(windows_design.INTERNAL_GAP)
-        body.addWidget(self._heading("Apariencia"))
+        body.addWidget(self._heading(tr("Apariencia")))
         themes = QHBoxLayout()
         themes.setSpacing(windows_design.INTERNAL_GAP)
         self.theme_buttons = {}
         for key, label in theme_choices:
             button = QPushButton(label)
             button.setCheckable(True)
-            button.setAccessibleName(f"Estilo {label}")
+            button.setAccessibleName(tr("Estilo {label}", label=label))
             button.clicked.connect(lambda _checked, key=key: self.theme_selected.emit(key))
             themes.addWidget(button)
             self.theme_buttons[key] = button
@@ -282,11 +283,52 @@ class SettingsPage(QWidget):
         self.optical_toggle.setCheckable(True)
         self.optical_toggle.toggled.connect(self._optical_toggled)
         body.addWidget(self.optical_toggle, alignment=Qt.AlignmentFlag.AlignLeft)
-        self.optical_hint = self._sub("Al abrir el panel, Nexus lee un instante los píxeles de detrás para dar profundidad "
-                                      "al cristal y ajustar el contraste. Solo se guardan en memoria mientras el panel está abierto.")
+        self.optical_hint = self._sub(tr("Al abrir el panel, Nexus lee un instante los píxeles de detrás para dar profundidad "
+                                      "al cristal y ajustar el contraste. Solo se guardan en memoria mientras el panel está abierto."))
         body.addWidget(self.optical_hint)
+
+        # -- language (applies on restart: labels are built once per process) --
+        body.addSpacing(windows_design.INTERNAL_GAP)
+        self.language_heading = self._heading(tr("Idioma"))
+        body.addWidget(self.language_heading)
+        languages = QHBoxLayout()
+        languages.setSpacing(windows_design.INTERNAL_GAP)
+        self.language_buttons = {}
+        for code, label in (("auto", tr("Automático (idioma de Windows)")), *i18n.LANGUAGES.items()):
+            button = QPushButton(label)
+            button.setCheckable(True)
+            button.clicked.connect(lambda _checked, code=code: self._language_selected(code))
+            languages.addWidget(button)
+            self.language_buttons[code] = button
+        languages.addStretch()
+        body.addLayout(languages)
+        self.language_hint = self._sub(tr("El idioma se aplica al reiniciar Nexus."))
+        self.language_hint.hide()
+        body.addWidget(self.language_hint)
+        self.restart_button = QPushButton(tr("Reiniciar Nexus"))
+        self.restart_button.setObjectName("primary")
+        self.restart_button.hide()
+        self.restart_button.clicked.connect(lambda: self.backend.restart())
+        body.addWidget(self.restart_button, alignment=Qt.AlignmentFlag.AlignLeft)
         body.addStretch()
         self.refresh()
+
+    def _sync_language(self):
+        available = hasattr(self.backend, "language_choice")
+        for widget in (self.language_heading, *self.language_buttons.values()):
+            widget.setVisible(available)
+        if not available:
+            return
+        choice = self.backend.language_choice()
+        for code, button in self.language_buttons.items():
+            button.setChecked(code == choice)
+        pending = i18n.resolve(choice) != i18n.language()
+        self.language_hint.setVisible(pending)
+        self.restart_button.setVisible(pending and hasattr(self.backend, "restart"))
+
+    def _language_selected(self, code):
+        self.backend.set_language_choice(code)
+        self._sync_language()
 
     @staticmethod
     def _heading(text):
@@ -314,6 +356,7 @@ class SettingsPage(QWidget):
         self._sync_autostart()
         self._sync_optical()
         self._sync_previews()
+        self._sync_language()
         self._after_change()
 
     def _sync_previews(self):
@@ -324,15 +367,15 @@ class SettingsPage(QWidget):
             self.previews_toggle.blockSignals(True)
             self.previews_toggle.setChecked(bool(self.backend.link_previews()))
             self.previews_toggle.blockSignals(False)
-            self.previews_toggle.setText("Vista previa de enlaces activada" if self.previews_toggle.isChecked()
-                                         else "Vista previa de enlaces desactivada")
+            self.previews_toggle.setText(tr("Vista previa de enlaces activada") if self.previews_toggle.isChecked()
+                                         else tr("Vista previa de enlaces desactivada"))
             self.previews_toggle.setAccessibleName(self.previews_toggle.text())
 
     def _previews_toggled(self, active):
         self.backend.set_link_previews(active)
         self._sync_previews()
 
-    AUTOSTART_HINT = "Nexus empieza al iniciar sesión en Windows. Solo para tu usuario; puedes desactivarlo cuando quieras."
+    AUTOSTART_HINT = tr("Nexus empieza al iniciar sesión en Windows. Solo para tu usuario; puedes desactivarlo cuando quieras.")
 
     def _sync_autostart(self):
         available = hasattr(self.backend, "autostart_enabled")
@@ -342,8 +385,8 @@ class SettingsPage(QWidget):
             self.autostart_toggle.blockSignals(True)
             self.autostart_toggle.setChecked(bool(self.backend.autostart_enabled()))
             self.autostart_toggle.blockSignals(False)
-            self.autostart_toggle.setText("Inicio con Windows activado" if self.autostart_toggle.isChecked()
-                                          else "Inicio con Windows desactivado")
+            self.autostart_toggle.setText(tr("Inicio con Windows activado") if self.autostart_toggle.isChecked()
+                                          else tr("Inicio con Windows desactivado"))
             self.autostart_toggle.setAccessibleName(self.autostart_toggle.text())
 
     def _autostart_toggled(self, active):
@@ -359,7 +402,7 @@ class SettingsPage(QWidget):
             self.optical_toggle.blockSignals(True)
             self.optical_toggle.setChecked(bool(self.backend.glass_optical()))
             self.optical_toggle.blockSignals(False)
-            self.optical_toggle.setText("Cristal óptico activado" if self.optical_toggle.isChecked() else "Cristal óptico desactivado")
+            self.optical_toggle.setText(tr("Cristal óptico activado") if self.optical_toggle.isChecked() else tr("Cristal óptico desactivado"))
             self.optical_toggle.setAccessibleName(self.optical_toggle.text())
 
     def _optical_toggled(self, active):
@@ -382,7 +425,7 @@ class SettingsPage(QWidget):
         self._sync_capture_text()
 
     def _sync_capture_text(self):
-        self.capture_toggle.setText("Captura activa" if self.capture_toggle.isChecked() else "Captura en pausa")
+        self.capture_toggle.setText(tr("Captura activa") if self.capture_toggle.isChecked() else tr("Captura en pausa"))
         self.capture_toggle.setAccessibleName(self.capture_toggle.text())
 
     def _capture_toggled(self, active):
@@ -396,7 +439,7 @@ class SettingsPage(QWidget):
         self.summary.setObjectName("statusError" if problems else "statusOk")
         self.summary.style().unpolish(self.summary)
         self.summary.style().polish(self.summary)
-        self.summary.setText("\n".join(problems) if problems else "Atajos restablecidos a sus valores originales.")
+        self.summary.setText("\n".join(problems) if problems else tr("Atajos restablecidos a sus valores originales."))
         self.summary.show()
 
     def _capture_started(self):

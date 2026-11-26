@@ -7,7 +7,8 @@ from PySide6.QtCore import QAbstractNativeEventFilter, QTimer, Qt, qVersion
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
-from . import paths, styles, type_detection
+from .i18n import plural, tr
+from . import i18n, paths, styles, type_detection
 from . import windows_autostart, windows_design, windows_optical, windows_sandbox, windows_system_theme
 from .windows_icons import app_icon, set_app_user_model_id, tray_icon
 from .windows_motion import fade_in
@@ -78,8 +79,8 @@ class GlobalHotkeys:
     @staticmethod
     def _explain(code):
         if code == ERROR_HOTKEY_ALREADY_REGISTERED:
-            return "Otra aplicación ya usa esa combinación."
-        return f"Windows no permite registrar esa combinación (código {code})."
+            return tr("Otra aplicación ya usa esa combinación.")
+        return tr("Windows no permite registrar esa combinación (código {code}).", code=code)
 
     def _register(self, name, text):
         """None on success, otherwise the reason."""
@@ -106,11 +107,11 @@ class GlobalHotkeys:
                 if fallback is None:
                     self.store.reset(name)
                     self._save()
-                    self.notices.append(f"«{label}»: no se pudo usar {text} ({error}) Se usa {default}.")
+                    self.notices.append(tr("«{label}»: no se pudo usar {text} ({error}) Se usa {default}.", label=label, text=text, error=error, default=default))
                     continue
             if error:
                 self.failures[name] = error
-                self.notices.append(f"«{label}» no está disponible: {error} Cámbiala en Configuración.")
+                self.notices.append(tr("«{label}» no está disponible: {error} Cámbiala en Configuración.", label=label, error=error))
 
     def change(self, name, text):
         result = self.store.validate(name, text)
@@ -218,6 +219,17 @@ class SettingsBackend:
             self._save()
         windows_optical.set_enabled(enabled)
 
+    def language_choice(self):
+        return str(self.settings.get("language", "auto"))
+
+    def set_language_choice(self, code):
+        if code in ("auto", *i18n.LANGUAGES) and code != self.language_choice():
+            self.settings["language"] = code
+            self._save()
+
+    def restart(self):
+        restart_application()
+
     def link_previews(self):
         return bool(self.settings.get("link_previews", True))
 
@@ -240,7 +252,7 @@ class SettingsBackend:
             windows_autostart.set_enabled(enabled, registry)
         except (windows_autostart.AutostartError, OSError) as exc:
             logging.getLogger("nexus.autostart").warning("autostart change failed: %s", type(exc).__name__)
-            return "No se pudo cambiar el inicio con Windows. Inténtalo de nuevo."
+            return tr("No se pudo cambiar el inicio con Windows. Inténtalo de nuevo.")
         self.settings["autostart"] = enabled
         self._save()
         return ""
@@ -277,15 +289,15 @@ class TrayController:
         if not self.available:
             logging.getLogger("nexus.tray").warning("system tray not available")
         self.menu = QMenu()
-        self.menu.addAction("Abrir Nexus", show_panel)
-        self.menu.addAction("Administrar pinboards y biblioteca…", show_pinboards)
+        self.menu.addAction(tr("Abrir Nexus"), show_panel)
+        self.menu.addAction(tr("Administrar pinboards y biblioteca…"), show_pinboards)
         self.stack_action = self.menu.addAction("Nexus Stack", show_stack)
         self.menu.addSeparator()
-        self.capture_action = self.menu.addAction("Pausar captura del portapapeles", self._toggle_capture)
+        self.capture_action = self.menu.addAction(tr("Pausar captura del portapapeles"), self._toggle_capture)
         self.menu.addSeparator()
-        self.settings_action = self.menu.addAction("Configuración…", show_settings)
-        self.shortcuts_action = self.menu.addAction("Atajos de teclado…", show_settings)
-        theme_menu = self.menu.addMenu("Estilo")
+        self.settings_action = self.menu.addAction(tr("Configuración…"), show_settings)
+        self.shortcuts_action = self.menu.addAction(tr("Atajos de teclado…"), show_settings)
+        theme_menu = self.menu.addMenu(tr("Estilo"))
         self.theme_actions = {}
         for key, label in windows_design.theme_choices():
             action = theme_menu.addAction(label)
@@ -294,7 +306,7 @@ class TrayController:
             action.triggered.connect(lambda _checked, key=key: apply_theme(key))
             self.theme_actions[action] = key
         self.menu.addSeparator()
-        self.quit_action = self.menu.addAction("Salir de Nexus", app.quit)
+        self.quit_action = self.menu.addAction(tr("Salir de Nexus"), app.quit)
         self.tray.setContextMenu(self.menu)
         self.tray.activated.connect(self._activated)
         stack_window.collecting_changed.connect(lambda _active: self.refresh())
@@ -325,10 +337,10 @@ class TrayController:
         if state == getattr(self, "_shown_state", None):
             return   # nothing changed: no menu/tooltip/icon churn in explorer
         self._shown_state = state
-        self.stack_action.setText("Stack activo · oculto" if hidden else "Stack activo" if active else "Nexus Stack · en pausa")
+        self.stack_action.setText(tr("Stack activo · oculto") if hidden else tr("Stack activo") if active else tr("Nexus Stack · en pausa"))
         paused = self.backend.capture_paused()
-        self.capture_action.setText("Reanudar captura del portapapeles" if paused else "Pausar captura del portapapeles")
-        self.tray.setToolTip("Nexus · captura en pausa" + self._suffix if paused else "Nexus" + self._suffix)
+        self.capture_action.setText(tr("Reanudar captura del portapapeles") if paused else tr("Pausar captura del portapapeles"))
+        self.tray.setToolTip(tr("Nexus · captura en pausa") + self._suffix if paused else "Nexus" + self._suffix)
         self.tray.setIcon(tray_icon(paused))
 
     NOTICE_INTERVAL_S = 8.0
@@ -338,7 +350,7 @@ class TrayController:
 
         Cancellations are the user's own doing (dismiss, new copy) and stay quiet;
         repeated failures are rate-limited so a burst cannot flood the tray."""
-        if not reason or reason.startswith("Operación cancelada"):
+        if not reason or reason == tr("Operación cancelada para conservar el portapapeles actual"):
             return
         now = time.monotonic()
         if now - getattr(self, "_last_notice", -1e9) < self.NOTICE_INTERVAL_S:
@@ -385,8 +397,33 @@ class HotkeyFilter(QAbstractNativeEventFilter):
                     self.on_theme_message()
         return False, 0
 
+RESTART_ENV = "NEXUS_RESTARTING"
+
+
+def restart_application():
+    """Start a new Nexus with the exact same command line, then quit this one.
+
+    The new process waits (bounded) for this one to release the single-instance
+    mutex instead of exiting at once. Works for `python -m`/`pythonw -c` launches
+    and for the frozen Nexus.exe alike (sys.orig_argv holds the real command)."""
+    from PySide6.QtCore import QProcess
+    argv = list(getattr(sys, "orig_argv", None) or [sys.executable, *sys.argv])
+    os.environ[RESTART_ENV] = "1"
+    try:
+        QProcess.startDetached(argv[0], argv[1:])
+    finally:
+        os.environ.pop(RESTART_ENV, None)
+    QApplication.instance().quit()
+
+
 def main():
     mutex = acquire_single_instance_mutex()
+    if mutex is None and os.environ.pop(RESTART_ENV, None) == "1":
+        for _ in range(50):   # the previous instance is shutting down: wait up to ~5 s
+            time.sleep(0.1)
+            mutex = acquire_single_instance_mutex()
+            if mutex is not None:
+                break
     if mutex is None:
         return 0
     # Unwind successful registrations even if a later startup step fails.

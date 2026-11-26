@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget,
 )
 
+from .i18n import plural, tr
 from .pinboard_editor import _swatch_pixmap
 from .pinboard_sidebar import HISTORY_ROW_ID, PinboardSidebar
 from .storage import AVAILABLE_COLORS, SUGGESTED_EMOJI, TITLE_MAX_LENGTH, Pinboard, normalize_title
@@ -47,7 +48,7 @@ class _EdgeHints:
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setFixedSize(30, 30)
             button.setIconSize(QSize(16, 16))
-            button.setToolTip("Ver más recientes" if side == "left" else "Ver más antiguos")
+            button.setToolTip(tr("Ver más recientes") if side == "left" else tr("Ver más antiguos"))
             button.setAccessibleName(button.toolTip())
             button.clicked.connect(lambda _checked=False, side=side: self._page(-1 if side == "left" else 1))
             button.hide()
@@ -103,15 +104,15 @@ class _InlineEditor(QWidget):
         form_layout = QVBoxLayout(form)
         form_layout.setContentsMargins(0, 0, 0, 0)
         form_layout.setSpacing(windows_design.INTERNAL_GAP)
-        form_layout.addWidget(QLabel("Nombre"))
+        form_layout.addWidget(QLabel(tr("Nombre")))
         self._name = QLineEdit(board.name)
-        self._name.setPlaceholderText("Nombre del pinboard")
+        self._name.setPlaceholderText(tr("Nombre del pinboard"))
         self._name.setMinimumWidth(0)
         form_layout.addWidget(self._name)
         toggles = QHBoxLayout()
         toggles.setSpacing(windows_design.INTERNAL_GAP)
-        self._emoji_toggle = QPushButton("Emoji")
-        self._color_toggle = QPushButton("Color")
+        self._emoji_toggle = QPushButton(tr("Emoji"))
+        self._color_toggle = QPushButton(tr("Color"))
         for button, mode in ((self._emoji_toggle, "emoji"), (self._color_toggle, "color")):
             button.setCheckable(True)
             button.clicked.connect(lambda _checked, mode=mode: self._switch_mode(mode))
@@ -125,7 +126,7 @@ class _InlineEditor(QWidget):
         identity_layout = QVBoxLayout(identity)
         identity_layout.setContentsMargins(0, 0, 0, 0)
         identity_layout.setSpacing(windows_design.INTERNAL_GAP)
-        identity_layout.addWidget(QLabel("Identidad visual"))
+        identity_layout.addWidget(QLabel(tr("Identidad visual")))
         self._stack = QStackedWidget()
         self._stack.addWidget(self._build_emoji_grid())
         self._stack.addWidget(self._build_color_grid())
@@ -141,7 +142,7 @@ class _InlineEditor(QWidget):
         self._actions = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         self._actions.setSpacing(windows_design.INTERNAL_GAP)
         self._actions.addStretch()
-        for text, name, callback in (("Cancelar", "flat", self.reject), ("Guardar", "primary", self._save)):
+        for text, name, callback in ((tr("Cancelar"), "flat", self.reject), (tr("Guardar"), "primary", self._save)):
             button = QPushButton(text)
             button.setObjectName(name)
             button.clicked.connect(callback)
@@ -184,7 +185,7 @@ class _InlineEditor(QWidget):
             button.setIcon(QIcon(_swatch_pixmap(color, color == self.selected_color)))
             button.setIconSize(button.size())
             button.setToolTip(color)
-            button.setAccessibleName(f"Color {color}")
+            button.setAccessibleName(tr("Color {value}", value=color))
             button.clicked.connect(lambda _checked, color=color: self._pick_color(color))
             grid.addWidget(button, index // 10, index % 10)
         return page
@@ -198,7 +199,7 @@ class _InlineEditor(QWidget):
             button = QPushButton(emoji)
             button.setFixedSize(28, 28)
             button.setStyleSheet("padding: 0; font-size: 16px;")
-            button.setAccessibleName(f"Emoji {emoji}")
+            button.setAccessibleName(tr("Emoji {value}", value=emoji))
             button.clicked.connect(lambda _checked, emoji=emoji: self._pick_emoji(emoji))
             grid.addWidget(button, index // 10, index % 10)
         return page
@@ -307,7 +308,7 @@ class _InlineSidebar(PinboardSidebar):
             amount = counts.get(item.data(Qt.ItemDataRole.UserRole), 0)
             item.setData(COUNT_ROLE, amount)
             # The full name travels with the tooltip too: the row may have elided it.
-            item.setToolTip(f"{item.text().strip()} — {amount} elemento{'s' if amount != 1 else ''}")
+            item.setToolTip(f"{item.text().strip()} — " + plural(amount, "{n} elemento", "{n} elementos"))
         self._list.blockSignals(False)
 
     def _on_create(self):
@@ -316,10 +317,10 @@ class _InlineSidebar(PinboardSidebar):
     def _show_board_menu(self, row_id, global_pos):
         menu = QMenu(self)
         edit = menu.addAction("Renombrar / color / emoji…")
-        up = menu.addAction("Mover arriba")
-        down = menu.addAction("Mover abajo")
+        up = menu.addAction(tr("Mover arriba"))
+        down = menu.addAction(tr("Mover abajo"))
         menu.addSeparator()
-        delete = menu.addAction("Eliminar…")
+        delete = menu.addAction(tr("Eliminar…"))
         chosen = menu.exec(global_pos)
         if chosen == edit:
             self.edit_requested.emit(row_id)
@@ -345,8 +346,8 @@ class _TitleEditor(QLineEdit):
         super().__init__(text, parent)
         self.setObjectName("titleEditor")
         self.setMaxLength(TITLE_MAX_LENGTH)
-        self.setPlaceholderText("Añadir título")
-        self.setAccessibleName("Título del elemento")
+        self.setPlaceholderText(tr("Añadir título"))
+        self.setAccessibleName(tr("Título del elemento"))
         self._finished = False
 
     def finish(self, commit):
@@ -387,25 +388,25 @@ class _TitleEditor(QLineEdit):
 
 
 class _DetailsDialog(QDialog):
-    """Compact "Detalles" with the editable title; the panel stays the owner."""
+    """Compact tr("Detalles") with the editable title; the panel stays the owner."""
 
     def __init__(self, item, board_names, parent):
         super().__init__(parent)
         self.setObjectName("detailsDialog")
-        self.setWindowTitle("Detalles")
+        self.setWindowTitle(tr("Detalles"))
         self.setModal(True)
         self.setMinimumWidth(360)
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 18, 20, 16)
         root.setSpacing(windows_design.INTERNAL_GAP)
-        root.addWidget(self._key("Título"))
+        root.addWidget(self._key(tr("Título")))
         self.title_edit = QLineEdit(item.title or "")
         self.title_edit.setMaxLength(TITLE_MAX_LENGTH)
-        self.title_edit.setPlaceholderText("Sin título")
-        self.title_edit.setAccessibleName("Título del elemento")
+        self.title_edit.setPlaceholderText(tr("Sin título"))
+        self.title_edit.setAccessibleName(tr("Título del elemento"))
         root.addWidget(self.title_edit)
         for key, value in (
-            ("Tipo", item.kind), ("Origen", item.source_app or "desconocido"),
+            (tr("Tipo"), item.kind), (tr("Origen"), item.source_app or "desconocido"),
             ("Pinboards", ", ".join(board_names) or "ninguno"), ("ID local", str(item.id)),
         ):
             root.addWidget(self._key(key))
@@ -415,9 +416,9 @@ class _DetailsDialog(QDialog):
             label.setWordWrap(True)
             root.addWidget(label)
         buttons = QDialogButtonBox()
-        save = buttons.addButton("Guardar", QDialogButtonBox.ButtonRole.AcceptRole)
+        save = buttons.addButton(tr("Guardar"), QDialogButtonBox.ButtonRole.AcceptRole)
         save.setObjectName("primary")
-        buttons.addButton("Cerrar", QDialogButtonBox.ButtonRole.RejectRole)
+        buttons.addButton(tr("Cerrar"), QDialogButtonBox.ButtonRole.RejectRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -497,7 +498,7 @@ class WindowsTimelineWindow(TimelineWindow):
         admin_layout = QVBoxLayout(self._admin_page)
         admin_layout.setContentsMargins(0, 0, 0, 0)
         admin_layout.setSpacing(windows_design.BLOCK_GAP)
-        self._back_btn = QPushButton("← Volver")
+        self._back_btn = QPushButton(tr("← Volver"))
         self._back_btn.setObjectName("expandToggle")
         self._back_btn.clicked.connect(self.close_pinboard_manager)
         admin_layout.addWidget(self._back_btn, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -511,7 +512,7 @@ class WindowsTimelineWindow(TimelineWindow):
         self._sidebar.layout().setContentsMargins(0, 0, 0, 0)
         self._sidebar.layout().setSpacing(windows_design.INTERNAL_GAP)
 
-        self._sidebar._edit_btn.setAccessibleName("Opciones del pinboard")
+        self._sidebar._edit_btn.setAccessibleName(tr("Opciones del pinboard"))
         body.addWidget(self._sidebar)
         self._editor_scroll = QScrollArea()
         self._editor_scroll.setObjectName("pinboardDetailScroll")
@@ -559,34 +560,34 @@ class WindowsTimelineWindow(TimelineWindow):
         self._brand = QLabel()
         self._brand.setFixedSize(24, 24)
         header.insertWidget(0, self._brand)
-        eyebrow = QLabel("PORTAPAPELES")
+        eyebrow = QLabel(tr("PORTAPAPELES"))
         eyebrow.setObjectName("contextEyebrow")
         self._eyebrow = eyebrow
         header.insertWidget(2, eyebrow)
         self._count_badge.setFixedHeight(24)
-        self._count_badge.setToolTip("Elementos en la vista actual")
-        self._style_btn.setAccessibleName("Elegir estilo visual")
+        self._count_badge.setToolTip(tr("Elementos en la vista actual"))
+        self._style_btn.setAccessibleName(tr("Elegir estilo visual"))
         # The Expandir/Contraer control is not part of the Windows header.
         header.removeWidget(self._expand_btn)
         self._expand_btn.deleteLater()
         self._expand_btn = None
         self._close_btn.setText("")
-        self._search.setPlaceholderText("Buscar en tu historial…")
-        self._search.setAccessibleName("Buscar contenido del portapapeles")
+        self._search.setPlaceholderText(tr("Buscar en tu historial…"))
+        self._search.setAccessibleName(tr("Buscar contenido del portapapeles"))
         self._search.setClearButtonEnabled(True)
         self._search_action = self._search.addAction(windows_design.icon("search", windows_design.palette().muted), QLineEdit.ActionPosition.LeadingPosition)
         self._search_highlight = SearchFocusHighlight(self._search)
         # No footer: the keyboard legend is gone (shortcuts keep working) and the
         # brief "Guardado" confirmation now lives in the header, beside the count.
-        self._feedback_label = QLabel("Guardado")
+        self._feedback_label = QLabel(tr("Guardado"))
         self._feedback_label.setObjectName("successFeedback")
         self._feedback_label.hide()
         header.insertWidget(header.indexOf(self._count_badge), self._feedback_label)
-        self._undo_btn = QPushButton("Deshacer")
+        self._undo_btn = QPushButton(tr("Deshacer"))
         self._undo_btn.setObjectName("flat")
         self._undo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._undo_btn.setToolTip("Restaurar el elemento eliminado · Ctrl+Z")
-        self._undo_btn.setAccessibleName("Deshacer eliminar")
+        self._undo_btn.setToolTip(tr("Restaurar el elemento eliminado · Ctrl+Z"))
+        self._undo_btn.setAccessibleName(tr("Deshacer eliminar"))
         self._undo_btn.hide()
         self._undo_btn.clicked.connect(self.undo_delete)
         header.insertWidget(header.indexOf(self._count_badge), self._undo_btn)
@@ -614,7 +615,7 @@ class WindowsTimelineWindow(TimelineWindow):
         empty_layout.addWidget(self._empty_action, 0, Qt.AlignmentFlag.AlignHCenter)
         self._empty_action_slot = None
         self._empty_action.clicked.connect(lambda: self._empty_action_slot() if self._empty_action_slot else None)
-        self._pages.setAccessibleName("Historial")
+        self._pages.setAccessibleName(tr("Historial"))
         self.apply_visual_theme()
         self._sync_chip_height()
         QApplication.instance().focusChanged.connect(self._ensure_editor_focus_visible)
@@ -674,7 +675,7 @@ class WindowsTimelineWindow(TimelineWindow):
         self._sidebar._edit_btn.setText("")
         self._sidebar._edit_btn.setIcon(windows_design.icon("more", p.muted, 18))
         self._sidebar._edit_btn.setIconSize(QSize(18, 18))
-        self._back_btn.setText("Volver")
+        self._back_btn.setText(tr("Volver"))
         self._back_btn.setIcon(windows_design.icon("back", p.muted, 16))
         if getattr(self, "_settings_page", None) is not None:
             self._settings_page.back_button.setIcon(windows_design.icon("back", p.muted, 16))
@@ -740,15 +741,15 @@ class WindowsTimelineWindow(TimelineWindow):
         options = QToolButton()
         options.setObjectName("navigationOptions")
         options.setIconSize(QSize(18, 18))
-        options.setToolTip("Más opciones")
-        options.setAccessibleName("Más opciones: Pinboards y Configuración")
+        options.setToolTip(tr("Más opciones"))
+        options.setAccessibleName(tr("Más opciones: Pinboards y Configuración"))
         options.setCheckable(True)
         options.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(options)
-        manage = menu.addAction("Administrar Pinboards")
+        manage = menu.addAction(tr("Administrar Pinboards"))
         manage.triggered.connect(self.manage_pinboards_requested.emit)
         if getattr(self, "_settings_page", None) is not None:
-            menu.addAction("Configuración").triggered.connect(self.show_settings)
+            menu.addAction(tr("Configuración")).triggered.connect(self.show_settings)
         options.setMenu(menu)
         self._pinboard_row.addWidget(options)
         self._management_btn = options
@@ -866,7 +867,7 @@ class WindowsTimelineWindow(TimelineWindow):
         item.load_image_data()   # listed rows read the PNG lazily: keep it for Deshacer
         super()._delete_item(item)
         self._undo_item = item
-        self._show_notice("Eliminado", undo=True)
+        self._show_notice(tr("Eliminado"), undo=True)
 
     def undo_delete(self):
         item, self._undo_item = self._undo_item, None
@@ -875,7 +876,7 @@ class WindowsTimelineWindow(TimelineWindow):
         restored = self._storage.restore_item(item)
         self._feedback_timer.stop()
         self.refresh()
-        self._show_notice("Restaurado" if restored else "No se pudo restaurar")
+        self._show_notice(tr("Restaurado") if restored else tr("No se pudo restaurar"))
 
     def refresh(self):
         if (self._current_pinboard_id is not None
@@ -884,17 +885,17 @@ class WindowsTimelineWindow(TimelineWindow):
         super().refresh()
         # The search box says where it will look (history or the open pinboard).
         board = self._storage.get_pinboard(self._current_pinboard_id) if self._current_pinboard_id is not None else None
-        self._search.setPlaceholderText(f"Buscar en «{board.name}»…" if board else "Buscar en tu historial…")
+        self._search.setPlaceholderText(tr("Buscar en «{name}»…", name=board.name) if board else tr("Buscar en tu historial…"))
         if self._model.rowCount() == 0:
             query = self._search.text().strip()
             if query:
-                self._empty_label.setText(f"Sin resultados para «{query}».\nPrueba con otra palabra.")
-                self._set_empty_state("search", "Borrar búsqueda", self._clear_search)
+                self._empty_label.setText(tr("Sin resultados para «{query}».\nPrueba con otra palabra.", query=query))
+                self._set_empty_state("search", tr("Borrar búsqueda"), self._clear_search)
             elif self._current_pinboard_id is not None:
-                self._empty_label.setText("Este pinboard está vacío.\nClic derecho en una tarjeta › Pinboards para guardarla aquí.")
-                self._set_empty_state("board", "Ir al historial", lambda: self._navigate_board(None))
+                self._empty_label.setText(tr("Este pinboard está vacío.\nClic derecho en una tarjeta › Pinboards para guardarla aquí."))
+                self._set_empty_state("board", tr("Ir al historial"), lambda: self._navigate_board(None))
             else:
-                self._empty_label.setText("Tu historial empieza aquí.\nCopia texto, imágenes o archivos para guardarlos.")
+                self._empty_label.setText(tr("Tu historial empieza aquí.\nCopia texto, imágenes o archivos para guardarlos."))
                 self._set_empty_state("history", None, None)
         # Preview payloads include images. The persistent cache can retrieve
         # them again, so retain only the bounded current model in RAM.
@@ -904,8 +905,8 @@ class WindowsTimelineWindow(TimelineWindow):
                 del self._preview_data[key]
         if hasattr(self, "_feedback_label"):
             board = self._storage.get_pinboard(self._current_pinboard_id) if self._current_pinboard_id is not None else None
-            self._pages.setAccessibleName("Pinboards" if self._pages.currentIndex() == 1 else board.name if board else "Historial")
-            self._count_badge.setAccessibleName(f"{self._model.rowCount()} elementos en la vista actual")
+            self._pages.setAccessibleName("Pinboards" if self._pages.currentIndex() == 1 else board.name if board else tr("Historial"))
+            self._count_badge.setAccessibleName(plural(self._model.rowCount(), "{n} elemento en la vista actual", "{n} elementos en la vista actual"))
         if hasattr(self, "_sidebar"):
             self._sidebar.refresh()
             board_list = self._sidebar._list
@@ -979,7 +980,7 @@ class WindowsTimelineWindow(TimelineWindow):
         layout = QVBoxLayout(host)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(windows_design.BLOCK_GAP)
-        self._right_heading = QLabel(board.name if board else "Nuevo pinboard" if creating else "Tus pinboards")
+        self._right_heading = QLabel(board.name if board else tr("Nuevo pinboard") if creating else tr("Tus pinboards"))
         self._right_heading.setObjectName("pinboardDetailHeading")
         self._right_heading.setTextFormat(Qt.TextFormat.PlainText)
         self._right_heading.setWordWrap(True)
@@ -994,17 +995,18 @@ class WindowsTimelineWindow(TimelineWindow):
             boards = self._storage.list_pinboards()
             if boards:
                 saved = self._storage._conn.execute("SELECT COUNT(DISTINCT item_id) FROM pinboard_items").fetchone()[0]
-                text = (f"{len(boards)} pinboard{'s' if len(boards) != 1 else ''} · {saved} elemento{'s' if saved != 1 else ''} guardado{'s' if saved != 1 else ''}.\n"
-                        "Elige uno a la izquierda para cambiar su nombre, color o emoji.")
+                text = (plural(len(boards), "{n} pinboard", "{n} pinboards") + " · "
+                        + plural(saved, "{n} elemento guardado", "{n} elementos guardados") + ".\n"
+                        + tr("Elige uno a la izquierda para cambiar su nombre, color o emoji."))
             else:
-                text = ("Aún no tienes pinboards. Un pinboard guarda lo que necesitas a mano: plantillas, direcciones, enlaces frecuentes.\n"
-                        "Un elemento puede estar en varios pinboards.")
+                text = (tr("Aún no tienes pinboards. Un pinboard guarda lo que necesitas a mano: plantillas, direcciones, enlaces frecuentes.\n"
+                        "Un elemento puede estar en varios pinboards."))
             empty = QLabel(text)
             empty.setObjectName("pinboardDetailEmpty")
             empty.setWordWrap(True)
             layout.addWidget(empty)
             if not boards:
-                start = QPushButton("+ Nuevo pinboard")
+                start = QPushButton(tr("+ Nuevo pinboard"))
                 start.setObjectName("primary")
                 start.setCursor(Qt.CursorShape.PointingHandCursor)
                 start.clicked.connect(lambda: self._open_editor(None))
@@ -1019,7 +1021,7 @@ class WindowsTimelineWindow(TimelineWindow):
         self._editor.cancelled.connect(self.close_pinboard_manager)
         layout.addWidget(self._editor)
         if self._editing_id is not None:
-            delete = QPushButton("Eliminar")
+            delete = QPushButton(tr("Eliminar"))
             delete.setObjectName("flat")
             delete.clicked.connect(lambda: self._delete_pinboard(self._editing_id))
             self._editor._actions.insertWidget(0, delete)
@@ -1041,14 +1043,14 @@ class WindowsTimelineWindow(TimelineWindow):
             self._open_editor(None)
             return
         self._select_pinboard(self._editing_id)
-        self._show_notice("Guardado")
+        self._show_notice(tr("Guardado"))
 
     def _delete_pinboard(self, board_id):
         board = self._storage.get_pinboard(board_id) if board_id is not None else None
         if board is None:
             return
         answer = QMessageBox.question(
-            self, "Eliminar pinboard", f"¿Eliminar «{board.name}»? Los clips se conservarán en Historial.",
+            self, tr("Eliminar pinboard"), tr("¿Eliminar «{name}»? Los clips se conservarán en Historial.", name=board.name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
@@ -1119,7 +1121,7 @@ class WindowsTimelineWindow(TimelineWindow):
         self._chip_scroll.hide()  # Configuración is a page of its own: Volver / Esc leave it.
         self._search.setEnabled(False)
         self._search.hide()
-        self._pages.setAccessibleName("Configuración")
+        self._pages.setAccessibleName(tr("Configuración"))
         self._settings_page.refresh()
         self._update_chip_state()
         self._apply_geometry()
@@ -1154,8 +1156,8 @@ class WindowsTimelineWindow(TimelineWindow):
     def _extend_item_menu(self, menu, item):
         # Name the keys of the most frequent actions where the user is looking.
         paste, plain = menu.actions()[:2]
-        paste.setText("Pegar\tEnter")
-        plain.setText("Pegar como texto plano\tMayús+Enter")
+        paste.setText(tr("Pegar\tEnter"))
+        plain.setText(tr("Pegar como texto plano\tMayús+Enter"))
         action = menu.addAction("Renombrar…\tF2")
         return {action: lambda item_id=item.id: self.begin_title_edit(item_id)}
 
@@ -1230,7 +1232,7 @@ class WindowsTimelineWindow(TimelineWindow):
         if not item.title:
             return True
         answer = QMessageBox.question(
-            self, "Eliminar elemento", f"¿Eliminar «{item.title}»? También se perderá su título.",
+            self, tr("Eliminar elemento"), tr("¿Eliminar «{name}»? También se perderá su título.", name=item.title),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )

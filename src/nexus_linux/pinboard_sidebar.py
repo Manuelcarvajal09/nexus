@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .i18n import plural, tr
 from . import styles
 from .pinboard_editor import PinboardIconEditor
 from .storage import Pinboard, StorageService
@@ -85,7 +86,7 @@ class PinboardSidebar(QWidget):
 
         actions_row = QHBoxLayout()
         actions_row.setSpacing(4)
-        self._add_btn = QPushButton("+ Nuevo pinboard")
+        self._add_btn = QPushButton(tr("+ Nuevo pinboard"))
         self._add_btn.setObjectName("primary")
         self._add_btn.clicked.connect(self._on_create)
         actions_row.addWidget(self._add_btn, stretch=1)
@@ -98,12 +99,12 @@ class PinboardSidebar(QWidget):
         self._edit_btn = QPushButton("⋮")
         self._edit_btn.setObjectName("flat")
         self._edit_btn.setFixedWidth(28)
-        self._edit_btn.setToolTip("Editar pinboard seleccionado")
+        self._edit_btn.setToolTip(tr("Editar pinboard seleccionado"))
         self._edit_btn.clicked.connect(self._on_edit_button_clicked)
         actions_row.addWidget(self._edit_btn)
         root.addLayout(actions_row)
 
-        self._hint = QLabel("Clic derecho, o el botón ⋮,\npara editar, mover o eliminar.")
+        self._hint = QLabel(tr("Clic derecho, o el botón ⋮,\npara editar, mover o eliminar."))
         self._hint.setObjectName("subtitle")
         self._hint.setWordWrap(True)
         root.addWidget(self._hint)
@@ -119,7 +120,7 @@ class PinboardSidebar(QWidget):
             return
         self._compact = compact
         self._hint.setVisible(not compact)
-        self._add_btn.setText("+ Nuevo" if compact else "+ Nuevo pinboard")
+        self._add_btn.setText(tr("+ Nuevo") if compact else tr("+ Nuevo pinboard"))
         # Width bounds shrink progressively; the 120→132 gap is the minimal
         # navigation rail, 148→220 is the full rail with room for long names.
         self.setMinimumWidth(108 if compact else 120)
@@ -132,7 +133,7 @@ class PinboardSidebar(QWidget):
         self._list.blockSignals(True)
         self._list.clear()
 
-        history_item = QListWidgetItem(styles.icon("view-history", size=15), "Historial")
+        history_item = QListWidgetItem(styles.icon("view-history", size=15), tr("Historial"))
         history_item.setData(Qt.ItemDataRole.UserRole, HISTORY_ROW_ID)
         history_item.setFlags(history_item.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
         self._list.addItem(history_item)
@@ -180,7 +181,7 @@ class PinboardSidebar(QWidget):
 
     def _on_create(self) -> None:
         count = len(self._storage.list_pinboards())
-        board = self._storage.create_pinboard(f"Pinboard {count + 1}")
+        board = self._storage.create_pinboard(tr("Pinboard {n}", n=count + 1))
         editor = PinboardIconEditor(board, self, creating=True)
         if editor.exec() == PinboardIconEditor.DialogCode.Accepted:
             self._storage.update_pinboard(board.id, **editor.result_kwargs())
@@ -209,18 +210,18 @@ class PinboardSidebar(QWidget):
 
     def _show_board_menu(self, row_id: int, global_pos) -> None:
         menu = QMenu(self)
-        rename_action = menu.addAction("Renombrar…")
-        icon_action = menu.addAction("Cambiar ícono…")
+        rename_action = menu.addAction(tr("Renombrar…"))
+        icon_action = menu.addAction(tr("Cambiar ícono…"))
         menu.addSeparator()
-        move_up_action = menu.addAction("Mover arriba")
-        move_down_action = menu.addAction("Mover abajo")
+        move_up_action = menu.addAction(tr("Mover arriba"))
+        move_down_action = menu.addAction(tr("Mover abajo"))
         menu.addSeparator()
-        delete_action = menu.addAction("Eliminar")
+        delete_action = menu.addAction(tr("Eliminar"))
         chosen = menu.exec(global_pos)
 
         if chosen == rename_action:
             board = self._storage.get_pinboard(row_id)
-            new_name, ok = QInputDialog.getText(self, "Renombrar pinboard", "Nombre:", text=board.name)
+            new_name, ok = QInputDialog.getText(self, tr("Renombrar pinboard"), tr("Nombre:"), text=board.name)
             if ok and new_name.strip():
                 self._storage.update_pinboard(row_id, name=new_name.strip())
                 self.refresh()

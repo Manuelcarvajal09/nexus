@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .i18n import plural, tr
 from . import panel_geometry, styles, type_detection
 from .paste_service import POST_HIDE_PASTE_DELAY_MS, PasteService
 from .glass_surface import LiquidGlassSurface
@@ -178,9 +179,9 @@ class TimelineWindow(QWidget):
         self._count_badge.setObjectName("badgeCompact")
         header.addWidget(self._count_badge)
 
-        self._style_btn = QPushButton("Estilo")
+        self._style_btn = QPushButton(tr("Estilo"))
         self._style_btn.setObjectName("expandToggle")
-        self._style_btn.setToolTip("Cambiar el estilo visual de Nexus")
+        self._style_btn.setToolTip(tr("Cambiar el estilo visual de Nexus"))
         style_menu = QMenu(self._style_btn)
         self._theme_actions = {}
         for theme_key, theme_label in styles.theme_choices():
@@ -200,14 +201,14 @@ class TimelineWindow(QWidget):
         self._close_btn = QPushButton("×")
         self._close_btn.setObjectName("closeButton")
         self._close_btn.setToolTip("Ocultar Nexus (Esc)")
-        self._close_btn.setAccessibleName("Ocultar Nexus")
+        self._close_btn.setAccessibleName(tr("Ocultar Nexus"))
         self._close_btn.clicked.connect(self.fade_hide)
         header.addWidget(self._close_btn)
         chrome_layout.addLayout(header)
 
         self._search = QLineEdit()
         self._search.setObjectName("quickSearch")
-        self._search.setPlaceholderText("Buscar, o simplemente empieza a escribir…")
+        self._search.setPlaceholderText(tr("Buscar, o simplemente empieza a escribir…"))
         self._search.textChanged.connect(self._on_search_text_changed)
         self._search.returnPressed.connect(self._focus_list)
         self._search.installEventFilter(self)
@@ -310,9 +311,9 @@ class TimelineWindow(QWidget):
         if item is None:
             return
         menu = QMenu(self)
-        paste_action = menu.addAction("Pegar")
-        plain_action = menu.addAction("Pegar como texto plano")
-        copy_action = menu.addAction("Copiar nuevamente")
+        paste_action = menu.addAction(tr("Pegar"))
+        plain_action = menu.addAction(tr("Pegar como texto plano"))
+        copy_action = menu.addAction(tr("Copiar nuevamente"))
         extra_actions = self._extend_item_menu(menu, item)
         pin_menu = menu.addMenu("Pinboards")
         boards = self._storage.list_pinboards()
@@ -323,13 +324,13 @@ class TimelineWindow(QWidget):
             action.setChecked(board.id in item.pinboard_ids)
             board_actions[action] = board.id
         if not boards:
-            empty_action = pin_menu.addAction("No tienes pinboards todavía")
+            empty_action = pin_menu.addAction(tr("No tienes pinboards todavía"))
             empty_action.setEnabled(False)
         pin_menu.addSeparator()
-        manage_action = pin_menu.addAction("Administrar pinboards…")
-        details_action = menu.addAction("Detalles")
+        manage_action = pin_menu.addAction(tr("Administrar pinboards…"))
+        details_action = menu.addAction(tr("Detalles"))
         menu.addSeparator()
-        delete_action = menu.addAction("Eliminar" + self.DELETE_MENU_HINT)
+        delete_action = menu.addAction(tr("Eliminar") + self.DELETE_MENU_HINT)
         chosen = menu.exec(self._list.viewport().mapToGlobal(pos))
         if chosen == paste_action:
             self._select_and_paste(item)
@@ -361,7 +362,7 @@ class TimelineWindow(QWidget):
         return {}
 
     def _show_item_details(self, item) -> None:
-        QMessageBox.information(self, "Detalles", f"Tipo: {item.kind}\nOrigen: {item.source_app or 'desconocido'}\nID local: {item.id}")
+        QMessageBox.information(self, tr("Detalles"), tr("Tipo: {kind}\nOrigen: {source}\nID local: {id}", kind=item.kind, source=item.source_app or tr("desconocido"), id=item.id))
 
     DELETE_MENU_HINT = ""  # platform layers may append "\tKey"
 
@@ -477,7 +478,7 @@ class TimelineWindow(QWidget):
                 child.widget().deleteLater()
         self._pinboard_buttons.clear()
 
-        all_btn = QPushButton("Historial")
+        all_btn = QPushButton(tr("Historial"))
         all_btn.setObjectName("pinboardChipCompact")
         all_btn.setCheckable(True)
         all_btn.setChecked(self._current_pinboard_id == ALL_PINBOARDS_ID)
@@ -496,7 +497,7 @@ class TimelineWindow(QWidget):
 
         manage_btn = QPushButton("+ Pinboard")
         manage_btn.setObjectName("pinboardChipCompact")
-        manage_btn.setToolTip("Crear, renombrar, ordenar y personalizar pinboards")
+        manage_btn.setToolTip(tr("Crear, renombrar, ordenar y personalizar pinboards"))
         manage_btn.clicked.connect(self.manage_pinboards_requested.emit)
         self._pinboard_row.addWidget(manage_btn)
 
@@ -516,11 +517,11 @@ class TimelineWindow(QWidget):
         self._count_badge.setText(str(len(items)))
         empty = len(items) == 0
         if empty and query:
-            self._empty_label.setText(f"Sin resultados para «{query}».")
+            self._empty_label.setText(tr("Sin resultados para «{query}».", query=query))
         elif empty and self._current_pinboard_id is not None:
-            self._empty_label.setText("Este pinboard está vacío.")
+            self._empty_label.setText(tr("Este pinboard está vacío."))
         else:
-            self._empty_label.setText("Tu historial está vacío. Copia algo para empezar.")
+            self._empty_label.setText(tr("Tu historial está vacío. Copia algo para empezar."))
         self._empty_label.setVisible(empty)
         self._list.setVisible(not empty)
         if items:

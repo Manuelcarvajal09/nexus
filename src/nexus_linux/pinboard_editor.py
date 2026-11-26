@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .i18n import plural, tr
 from . import styles
 from .storage import AVAILABLE_COLORS, Pinboard, SUGGESTED_EMOJI
 
@@ -51,7 +52,7 @@ class PinboardIconEditor(QDialog):
 
     def __init__(self, board: Pinboard, parent=None, creating: bool = False):
         super().__init__(parent)
-        self.setWindowTitle("Nuevo pinboard" if creating else f"Editar {board.name}")
+        self.setWindowTitle(tr("Nuevo pinboard") if creating else tr("Editar {name}", name=board.name))
         self.setFixedWidth(300)
         self.setStyleSheet(styles.qss())
 
@@ -61,17 +62,17 @@ class PinboardIconEditor(QDialog):
         root = QVBoxLayout(self)
         root.setSpacing(14)
 
-        root.addWidget(QLabel("Nombre"))
+        root.addWidget(QLabel(tr("Nombre")))
         self._name = QLineEdit(board.name)
-        self._name.setPlaceholderText("Nombre del pinboard")
+        self._name.setPlaceholderText(tr("Nombre del pinboard"))
         self._name.selectAll()
         root.addWidget(self._name)
 
-        root.addWidget(QLabel("Identidad visual"))
+        root.addWidget(QLabel(tr("Identidad visual")))
 
         toggle_row = QHBoxLayout()
-        self._emoji_toggle = QPushButton("Emoji")
-        self._color_toggle = QPushButton("Color")
+        self._emoji_toggle = QPushButton(tr("Emoji"))
+        self._color_toggle = QPushButton(tr("Color"))
         for btn in (self._emoji_toggle, self._color_toggle):
             btn.setCheckable(True)
         self._emoji_toggle.clicked.connect(lambda: self._switch_mode("emoji"))
@@ -87,11 +88,11 @@ class PinboardIconEditor(QDialog):
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        cancel_btn = QPushButton("Cancelar")
+        cancel_btn = QPushButton(tr("Cancelar"))
         cancel_btn.setObjectName("flat")
         cancel_btn.clicked.connect(self.reject)
         buttons.addWidget(cancel_btn)
-        save_btn = QPushButton("Guardar")
+        save_btn = QPushButton(tr("Guardar"))
         save_btn.setObjectName("primary")
         save_btn.clicked.connect(self._save)
         buttons.addWidget(save_btn)

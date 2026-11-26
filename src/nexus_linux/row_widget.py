@@ -6,9 +6,10 @@ from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
+from .i18n import plural, tr
 from . import styles, thumbnails
 
-KIND_LABELS = {"text": "Texto", "url": "Enlace", "image": "Imagen", "file": "Archivo"}
+KIND_LABELS = {"text": tr("Texto"), "url": tr("Enlace"), "image": tr("Imagen"), "file": tr("Archivo")}
 BADGE_SIZE = 34
 
 

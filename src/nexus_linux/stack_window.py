@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .i18n import plural, tr
 from .paste_service import POST_HIDE_PASTE_DELAY_MS
 from .glass_surface import LiquidGlassSurface
 from .row_widget import ClipRowWidget
@@ -112,13 +113,13 @@ class StackWindow(QWidget):
         self._set_order_control()
         self._order_btn.clicked.connect(self._toggle_order)
         header.addWidget(self._order_btn)
-        self._pause_btn = QPushButton("Pausar")
-        self._pause_btn.setToolTip("Pausar o reanudar la captura del Stack")
+        self._pause_btn = QPushButton(tr("Pausar"))
+        self._pause_btn.setToolTip(tr("Pausar o reanudar la captura del Stack"))
         self._pause_btn.clicked.connect(self.toggle_collecting)
         header.addWidget(self._pause_btn)
         close_btn = QPushButton("×")
         close_btn.setObjectName("closeButton")
-        close_btn.setToolTip("Ocultar Stack; la sesión permanece activa")
+        close_btn.setToolTip(tr("Ocultar Stack; la sesión permanece activa"))
         close_btn.clicked.connect(self.fade_hide)
         header.addWidget(close_btn)
         root.addWidget(self._header_widget)
@@ -130,7 +131,7 @@ class StackWindow(QWidget):
             drag_source.setCursor(Qt.CursorShape.SizeAllCursor)
             self._drag_sources.add(drag_source)
 
-        next_label = QLabel("SIGUIENTE")
+        next_label = QLabel(tr("SIGUIENTE"))
         next_label.setObjectName("subtitle")
         root.addWidget(next_label)
 
@@ -153,15 +154,15 @@ class StackWindow(QWidget):
         self._list.currentItemChanged.connect(self._on_selection_changed)
         root.addWidget(self._list, stretch=1)
 
-        self._empty_label = QLabel("Copia algo (Ctrl+C) para empezar a coleccionar en el Stack.")
+        self._empty_label = QLabel(tr("Copia algo (Ctrl+C) para empezar a coleccionar en el Stack."))
         self._empty_label.setObjectName("emptyState")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setWordWrap(True)
         root.addWidget(self._empty_label)
 
         hint = QLabel(
-            "Clic derecho en un elemento para eliminarlo del Stack. "
-            "Ctrl+V real consume y avanza al siguiente."
+            tr("Clic derecho en un elemento para eliminarlo del Stack. "
+            "Ctrl+V real consume y avanza al siguiente.")
         )
         hint.setObjectName("subtitle")
         hint.setWordWrap(True)
@@ -169,13 +170,13 @@ class StackWindow(QWidget):
 
         row1 = QHBoxLayout()
         row1.addStretch()
-        clear_btn = QPushButton("Vaciar Stack")
+        clear_btn = QPushButton(tr("Vaciar Stack"))
         clear_btn.setObjectName("flat")
         clear_btn.clicked.connect(self._on_clear)
         row1.addWidget(clear_btn)
         root.addLayout(row1)
 
-        self._paste_next_btn = QPushButton("📋 Pegar siguiente (manual)")
+        self._paste_next_btn = QPushButton(tr("📋 Pegar siguiente (manual)"))
         self._paste_next_btn.setObjectName("primary")
         self._paste_next_btn.clicked.connect(self.advance)
         root.addWidget(self._paste_next_btn)
@@ -187,11 +188,11 @@ class StackWindow(QWidget):
 
     def start_collecting(self) -> None:
         self._collecting = True
-        self._pause_btn.setText("Pausar")
+        self._pause_btn.setText(tr("Pausar"))
 
     def toggle_collecting(self) -> None:
         self._collecting = not self._collecting
-        self._pause_btn.setText("Pausar" if self._collecting else "Reanudar")
+        self._pause_btn.setText(tr("Pausar") if self._collecting else tr("Reanudar"))
 
     def has_pending_items(self) -> bool:
         return len(self._stack.items()) > 0
@@ -246,11 +247,11 @@ class StackWindow(QWidget):
             self._list.setItemWidget(list_item, row)
             row.activated.connect(lambda item_id=item.id: self._paste_item(item_id))
 
-        self._subtitle.setText(f"{count} elemento{'s' if count != 1 else ''} en total" if count else "Vacío")
+        self._subtitle.setText(plural(count, "{n} elemento en total", "{n} elementos en total") if count else tr("Vacío"))
 
         order_label = "FIFO" if not self._stack.reversed_order else "LIFO"
         self._remaining_label.setText(
-            f"{len(remaining)} restante{'s' if len(remaining) != 1 else ''} · {order_label}"
+            plural(len(remaining), "{n} restante", "{n} restantes") + f" · {order_label}"
             if count else ""
         )
         self._empty_label.setVisible(count == 0)
@@ -291,11 +292,11 @@ class StackWindow(QWidget):
             size=16,
         ))
         self._order_btn.setToolTip(
-            "Orden inverso: el último copiado se pega primero (LIFO)"
+            tr("Orden inverso: el último copiado se pega primero (LIFO)")
             if reversed_order else
-            "Orden normal: el primero copiado se pega primero (FIFO)"
+            tr("Orden normal: el primero copiado se pega primero (FIFO)")
         )
-        self._order_btn.setAccessibleName("Orden LIFO" if reversed_order else "Orden FIFO")
+        self._order_btn.setAccessibleName(tr("Orden LIFO") if reversed_order else tr("Orden FIFO"))
 
     def advance(self) -> None:
         """Paste the current head into whichever window has focus (not
@@ -348,7 +349,7 @@ class StackWindow(QWidget):
         item_id = list_item.data(Qt.ItemDataRole.UserRole)
 
         menu = QMenu(self)
-        delete_action = menu.addAction("Eliminar del Stack")
+        delete_action = menu.addAction(tr("Eliminar del Stack"))
         chosen = menu.exec(self._list.mapToGlobal(pos))
         if chosen == delete_action:
             self._stack.remove_persistent(item_id)
@@ -356,7 +357,7 @@ class StackWindow(QWidget):
 
     def _on_next_context_menu(self, anchor_widget, item_id: int, pos) -> None:
         menu = QMenu(self)
-        delete_action = menu.addAction("Eliminar del Stack")
+        delete_action = menu.addAction(tr("Eliminar del Stack"))
         chosen = menu.exec(anchor_widget.mapToGlobal(pos))
         if chosen == delete_action:
             self._stack.remove_persistent(item_id)
@@ -403,7 +404,7 @@ class StackWindow(QWidget):
         # Preserve the action at the smallest supported width without making
         # Stack gain a horizontal scrollbar just to show helper wording.
         self._paste_next_btn.setText(
-            "Pegar siguiente" if self.width() < 315 else "📋 Pegar siguiente (manual)"
+            tr("Pegar siguiente") if self.width() < 315 else tr("📋 Pegar siguiente (manual)")
         )
         super().resizeEvent(event)
 

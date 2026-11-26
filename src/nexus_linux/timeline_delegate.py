@@ -12,6 +12,7 @@ from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate
 
+from .i18n import plural, tr
 from . import relative_time, styles, thumbnails, type_detection
 from .timeline_model import ITEM_ROLE
 
@@ -34,9 +35,9 @@ TYPE_ICON_NAMES = {
 }
 
 TYPE_LABELS = {
-    "text": "Texto", "url": "Enlace", "youtube": "YouTube", "image": "Imagen",
-    "file": "Archivo", "color": "Color", "code": "Código", "json": "JSON",
-    "command": "Comando", "path": "Ruta", "email": "Email", "phone": "Teléfono",
+    "text": tr("Texto"), "url": tr("Enlace"), "youtube": "YouTube", "image": tr("Imagen"),
+    "file": tr("Archivo"), "color": tr("Color"), "code": tr("Código"), "json": "JSON",
+    "command": tr("Comando"), "path": tr("Ruta"), "email": tr("Email"), "phone": tr("Teléfono"),
 }
 
 
@@ -194,7 +195,7 @@ class ClipCardDelegate(QStyledItemDelegate):
         )
         painter.drawPixmap(thumb_rect.topLeft(), pixmap)
         meta_rect = rect.adjusted(0, self._thumb_height + 6, 0, 0)
-        self._draw_meta_line(painter, meta_rect, item, TYPE_LABELS.get(detected, "Imagen"), t)
+        self._draw_meta_line(painter, meta_rect, item, TYPE_LABELS.get(detected, tr("Imagen")), t)
 
     def _paint_color_card(self, painter, rect, item, t) -> None:
         color = _parse_color(item.text_content or "") or styles.qcolor(t.accent)
@@ -214,7 +215,7 @@ class ClipCardDelegate(QStyledItemDelegate):
         painter.drawText(value_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, item.text_content.strip())
 
         meta_rect = value_rect.adjusted(0, 20, 0, 0)
-        self._draw_meta_line(painter, meta_rect, item, "Color", t)
+        self._draw_meta_line(painter, meta_rect, item, tr("Color"), t)
 
     def _paint_code_card(self, painter, rect, item, detected, t) -> None:
         text = item.text_content or ""
@@ -233,7 +234,7 @@ class ClipCardDelegate(QStyledItemDelegate):
             text,
         )
         meta_rect = rect.adjusted(0, rect.height() - 16, 0, 0)
-        self._draw_meta_line(painter, meta_rect, item, TYPE_LABELS.get(detected, "Código"), t)
+        self._draw_meta_line(painter, meta_rect, item, TYPE_LABELS.get(detected, tr("Código")), t)
 
     def _paint_file_card(self, painter, rect, item, t) -> None:
         icon_pix = styles.kind_icon("file", color=t.accent, size=28).pixmap(28, 28)
@@ -251,7 +252,7 @@ class ClipCardDelegate(QStyledItemDelegate):
             filename,
         )
         meta_rect = rect.adjusted(0, rect.height() - 16, 0, 0)
-        self._draw_meta_line(painter, meta_rect, item, "Archivo", t)
+        self._draw_meta_line(painter, meta_rect, item, tr("Archivo"), t)
 
     def _paint_text_card(self, painter, rect, item, detected, t) -> None:
         icon_name = TYPE_ICON_NAMES.get(detected, "text-x-generic")
@@ -271,7 +272,7 @@ class ClipCardDelegate(QStyledItemDelegate):
         )
 
         meta_rect = rect.adjusted(0, rect.height() - 16, 0, 0)
-        self._draw_meta_line(painter, meta_rect, item, TYPE_LABELS.get(detected, "Texto"), t)
+        self._draw_meta_line(painter, meta_rect, item, TYPE_LABELS.get(detected, tr("Texto")), t)
 
     def _draw_meta_line(self, painter, rect, item, type_label: str, t) -> None:
         meta_font = QFont(t.font_family.split(",")[0].strip(' "'))

@@ -8,6 +8,7 @@ from PySide6.QtCore import QEasingCurve, QEvent, QPersistentModelIndex, QPointF,
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPainterPath, QPen
 from PySide6.QtWidgets import QAbstractItemView, QStyle, QToolTip
 
+from .i18n import plural, tr
 from . import relative_time, thumbnails, type_detection, windows_design
 from .timeline_delegate import CARD_MARGIN, TYPE_LABELS, ClipCardDelegate, _parse_color
 from .timeline_model import ITEM_ROLE
@@ -237,7 +238,7 @@ class WindowsClipCardDelegate(ClipCardDelegate):
             number = index.row() + 1
             shortcut = (getattr(view.window(), "_local_shortcuts", None) or {}).get("quick_paste", {}).get(number)
             keys = shortcut.key().toString(QKeySequence.SequenceFormat.NativeText) if shortcut is not None else ""
-            QToolTip.showText(event.globalPos(), f"Pegado rápido · {keys or f'Ctrl+{number}'}", view)
+            QToolTip.showText(event.globalPos(), tr("Pegado rápido · {keys}", keys=keys or f"Ctrl+{number}"), view)
             return True
         return super().helpEvent(event, view, option, index)
 
@@ -288,7 +289,7 @@ class WindowsClipCardDelegate(ClipCardDelegate):
         painter.setBrush(QColor(semantic))
         painter.drawRoundedRect(QRectF(header.left(), header.top() + 6, 3, 10), 1.5, 1.5)
         # Type label: small, uppercase and quiet, so title and content lead the hierarchy.
-        self._text(painter, header.adjusted(10, 0, -34, 0), TYPE_LABELS.get(detected, "Texto").upper(), 10,
+        self._text(painter, header.adjusted(10, 0, -34, 0), TYPE_LABELS.get(detected, tr("Texto")).upper(), 10,
                    tokens.muted, QFont.Weight.DemiBold, spacing=.7)
         if index.row() < 9:
             badge = self.badge_rect(option.rect)
@@ -348,8 +349,8 @@ class WindowsClipCardDelegate(ClipCardDelegate):
             self._text(painter, body.adjusted(40, 0, 0, 0), text, 14, tokens.text, QFont.Weight.DemiBold)
         elif detected != "image" or not image:
             if detected == "file":
-                text = (item.file_path or "").replace("\\", "/").rsplit("/", 1)[-1] or "Archivo"
-            self._text(painter, text_rect, text or "Vista previa no disponible", 13, content_color,
+                text = (item.file_path or "").replace("\\", "/").rsplit("/", 1)[-1] or tr("Archivo")
+            self._text(painter, text_rect, text or tr("Vista previa no disponible"), 13, content_color,
                        mono=detected in ("code", "json", "command"))
         painter.restore()
         painter.save()

@@ -9,6 +9,7 @@ from PySide6.QtCore import QEvent, QObject, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QGuiApplication, QPainter
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy, QWidget
 
+from .i18n import plural, tr
 from .stack import ClipStack
 from .stack_window import StackWindow
 from .windows_platform import clipboard_sequence
@@ -22,7 +23,7 @@ from .windows_platform import activate_foreground_window
 
 POST_PASTE_SETTLE_MS = 180
 MAX_PENDING_REQUESTS = 16
-ORDER_LABELS = {False: "En orden", True: "Inverso"}   # reversed_order -> user-facing label
+ORDER_LABELS = {False: tr("En orden"), True: tr("Inverso")}   # reversed_order -> user-facing label
 log = logging.getLogger("nexus.stack")
 
 
@@ -385,7 +386,7 @@ class WindowsStackWindow(StackWindow):
         super().__init__(clip_stack, parent)
         configure_native_host(self)
         self._collecting = False
-        self._pause_btn.setText("Reanudar")
+        self._pause_btn.setText(tr("Reanudar"))
         self._motion = WindowsMotion(self)
         self._surface = upgrade_surface(self, self._surface)
         self._surface.layout().setContentsMargins(*([windows_design.SURFACE_MARGIN] * 4))
@@ -400,8 +401,8 @@ class WindowsStackWindow(StackWindow):
             self._stack_brand.setPixmap(windows_design.icon("brand", windows_design.palette().accent, 24).pixmap(24, 24))
         for button in self.findChildren(QPushButton):
             if button.text() == "×":
-                button.setToolTip("Ocultar y detener Stack; conservar la lista")
-                button.setAccessibleName("Cerrar y detener Stack")
+                button.setToolTip(tr("Ocultar y detener Stack; conservar la lista"))
+                button.setAccessibleName(tr("Cerrar y detener Stack"))
                 button.setText("")
                 button.setIcon(windows_design.icon("close", windows_design.palette().muted, 16))
         self._height_timer = QTimer(self)
@@ -413,20 +414,20 @@ class WindowsStackWindow(StackWindow):
         self._clear_timer = QTimer(self)
         self._clear_timer.setSingleShot(True)
         self._clear_timer.timeout.connect(self._disarm_clear)
-        self._paste_next_btn.setText("Pegar siguiente")
+        self._paste_next_btn.setText(tr("Pegar siguiente"))
         self._optical = OpticalGlass(self, self._optical_controls)
-        self._paste_next_btn.setAccessibleName("Pegar el siguiente elemento del Stack")
+        self._paste_next_btn.setAccessibleName(tr("Pegar el siguiente elemento del Stack"))
         self._hint_label = next((label for label in self.findChildren(QLabel)
-                                 if label.text().startswith("Clic derecho")), None)
+                                 if label.text().startswith(tr("Clic derecho"))), None)
         if self._hint_label is not None:
             # No always-visible legend: the same guidance lives in tooltips.
             self._hint_label.hide()
-        self._paste_next_btn.setToolTip("Pegar el siguiente elemento · Ctrl+V")
-        self._list.setToolTip("Clic derecho para quitar un elemento del Stack")
+        self._paste_next_btn.setToolTip(tr("Pegar el siguiente elemento · Ctrl+V"))
+        self._list.setToolTip(tr("Clic derecho para quitar un elemento del Stack"))
         self._next_label = next((label for label in self.findChildren(QLabel)
-                                 if label.text() == "SIGUIENTE"), None)
+                                 if label.text() == tr("SIGUIENTE")), None)
         self._clear_btn = next((button for button in self.findChildren(QPushButton)
-                                if button.text() == "Vaciar Stack"), None)
+                                if button.text() == tr("Vaciar Stack")), None)
         self._list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.refresh()
@@ -444,22 +445,22 @@ class WindowsStackWindow(StackWindow):
         super().refresh()
         count = len(self._stack.items())
         self._subtitle.setText(
-            f"{'Sesión activa' if self.is_collecting() else 'En pausa'} · "
-            f"{count} elemento{'s' if count != 1 else ''}"
+            (tr("Sesión activa") if self.is_collecting() else tr("En pausa")) + " · "
+            + plural(count, "{n} elemento", "{n} elementos")
         )
         recovered = sum(item.id in self._stack._restored_ids for item in self._stack.items())
         if recovered:
-            self._subtitle.setText(self._subtitle.text() + f" · {recovered} pendiente(s) recuperado(s)")
+            self._subtitle.setText(self._subtitle.text() + " · " + plural(recovered, "{n} pendiente recuperado", "{n} pendientes recuperados"))
         remaining = max(0, count - 1)
         self._remaining_label.setText(
-            f"{remaining} restante{'s' if remaining != 1 else ''} · {ORDER_LABELS[self._stack.reversed_order].lower()}"
+            plural(remaining, "{n} restante", "{n} restantes") + f" · {ORDER_LABELS[self._stack.reversed_order].lower()}"
             if count else "")
         if count:
             self._empty_label.hide()
         else:
             self._empty_label.setText(
-                "Todo listo. Copia algo para comenzar." if self.is_collecting()
-                else "Captura en pausa.\nReanuda para continuar."
+                tr("Todo listo. Copia algo para comenzar.") if self.is_collecting()
+                else tr("Captura en pausa.\nReanuda para continuar.")
             )
         next_label = getattr(self, "_next_label", None)
         if next_label is not None:
@@ -539,13 +540,13 @@ class WindowsStackWindow(StackWindow):
         self._order_btn.setStyleSheet("padding: 4px 8px;")
         self._order_btn.setIcon(windows_design.icon("up" if reverse else "down", windows_design.palette().accent, 18))
         self._order_btn.setToolTip(
-            "Se pega primero lo último que copiaste · clic para cambiar" if reverse
-            else "Se pega en el mismo orden en que copiaste · clic para cambiar")
-        self._order_btn.setAccessibleName(f"Orden de pegado: {ORDER_LABELS[reverse]}")
+            tr("Se pega primero lo último que copiaste · clic para cambiar") if reverse
+            else tr("Se pega en el mismo orden en que copiaste · clic para cambiar"))
+        self._order_btn.setAccessibleName(tr("Orden de pegado: {order}", order=ORDER_LABELS[reverse]))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._paste_next_btn.setText("Pegar siguiente")
+        self._paste_next_btn.setText(tr("Pegar siguiente"))
 
     def _optical_controls(self):
         buttons = [self._pause_btn, self._paste_next_btn]
@@ -594,18 +595,18 @@ class WindowsStackWindow(StackWindow):
         changed = not self.is_collecting()
         self._stack.start_collecting()
         self._collecting = True
-        self._pause_btn.setText("Pausar")
+        self._pause_btn.setText(tr("Pausar"))
         if changed:
             self.collecting_changed.emit(True)
-        self._subtitle.setText(f"Sesión activa · {len(self._stack.items())} elementos")
+        self._subtitle.setText(tr("Sesión activa") + " · " + plural(len(self._stack.items()), "{n} elemento", "{n} elementos"))
         if hasattr(self, "_empty_label"):
-            self._empty_label.setText("Todo listo. Copia algo para comenzar.")
+            self._empty_label.setText(tr("Todo listo. Copia algo para comenzar."))
 
     def stop_collecting(self):
         changed = self.is_collecting()
         self._stack.stop_collecting()
         self._collecting = False
-        self._pause_btn.setText("Reanudar")
+        self._pause_btn.setText(tr("Reanudar"))
         # Stopping cancels not only Stack's advance timer but any focus retry
         # already scheduled by the central paste service for THIS overlay.
         cancel = getattr(self._stack.paste_service, "cancel_pending", None)
@@ -613,9 +614,9 @@ class WindowsStackWindow(StackWindow):
             cancel(self)
         if changed:
             self.collecting_changed.emit(False)
-        self._subtitle.setText(f"En pausa · {len(self._stack.items())} elementos")
+        self._subtitle.setText(tr("En pausa") + " · " + plural(len(self._stack.items()), "{n} elemento", "{n} elementos"))
         if hasattr(self, "_empty_label"):
-            self._empty_label.setText("Captura en pausa.\nReanuda para continuar.")
+            self._empty_label.setText(tr("Captura en pausa.\nReanuda para continuar."))
 
     def toggle_collecting(self):
         if self.is_collecting():
@@ -653,8 +654,8 @@ class WindowsStackWindow(StackWindow):
         self._clear_armed = True
         button = getattr(self, "_clear_btn", None)
         if button is not None:
-            button.setText("¿Vaciar? Clic otra vez")
-            button.setAccessibleName("Confirmar: vaciar todos los elementos del Stack")
+            button.setText(tr("¿Vaciar? Clic otra vez"))
+            button.setAccessibleName(tr("Confirmar: vaciar todos los elementos del Stack"))
         self._clear_timer.start(self.CLEAR_CONFIRM_MS)
 
     def _disarm_clear(self):
@@ -662,8 +663,8 @@ class WindowsStackWindow(StackWindow):
         self._clear_timer.stop()
         button = getattr(self, "_clear_btn", None)
         if button is not None:
-            button.setText("Vaciar Stack")
-            button.setAccessibleName("Vaciar Stack")
+            button.setText(tr("Vaciar Stack"))
+            button.setAccessibleName(tr("Vaciar Stack"))
 
     def fade_hide(self):
         self.stop_collecting()

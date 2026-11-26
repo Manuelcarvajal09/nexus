@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtGui import QKeySequence
+from .i18n import plural, tr
 
 GLOBAL, LOCAL = "global", "local"
 MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN = 0x1, 0x2, 0x4, 0x8
@@ -37,25 +38,25 @@ class Spec:
 
 
 SPECS = (
-    Spec("panel", "Mostrar u ocultar Nexus", "Abre o cierra el historial desde cualquier aplicación.", GLOBAL, "Ctrl+Shift+V"),
-    Spec("stack", "Activar Stack", "Muestra Stack y empieza a recoger lo que copies, en orden.", GLOBAL, "Ctrl+Shift+C"),
-    Spec("search", "Buscar", "Lleva el cursor al campo de búsqueda.", LOCAL, "Ctrl+F"),
-    Spec("rename", "Renombrar", "Edita el título del elemento seleccionado.", LOCAL, "F2"),
-    Spec("quick_paste", "Pegado rápido 1–9", "Pega directamente el elemento número 1 a 9 de la vista actual.", LOCAL, "Ctrl+1"),
-    Spec("board_prev", "Pinboard anterior", "Cambia al Pinboard de la izquierda.", LOCAL, "Ctrl+Left"),
-    Spec("board_next", "Pinboard siguiente", "Cambia al Pinboard de la derecha.", LOCAL, "Ctrl+Right"),
-    Spec("paste", "Pegar", "Pega el elemento seleccionado.", LOCAL, "Enter", False,
-         "Es la tecla de activación de la lista; cambiarla impediría pegar con el teclado.", ("Return",)),
-    Spec("paste_plain", "Pegar como texto plano", "Pega el elemento sin formato.", LOCAL, "Shift+Enter", False,
-         "Va ligada a Enter.", ("Shift+Return",)),
-    Spec("close", "Cerrar o volver", "Cierra el panel, o vuelve al historial desde Pinboards y Configuración.", LOCAL, "Esc", False,
-         "Escape es la salida segura de cualquier vista y de la edición."),
-    Spec("focus_toggle", "Alternar búsqueda y resultados", "Mueve el foco entre el campo de búsqueda y las tarjetas.", LOCAL, "Tab", False,
-         "Tab pertenece a la navegación de Windows.", ("Backtab",)),
-    Spec("stack_remove", "Quitar del Stack", "Quita del Stack el elemento seleccionado.", LOCAL, "Del", False,
-         "Se comparte con la edición de texto.", ("Backspace",)),
-    Spec("stack_paste", "Pegar el siguiente del Stack", "Con Stack activo, el pegado normal consume el siguiente elemento.", GLOBAL, "Ctrl+V", False,
-         "Es el pegado del propio sistema; Nexus lo observa, no lo reemplaza."),
+    Spec("panel", tr("Mostrar u ocultar Nexus"), tr("Abre o cierra el historial desde cualquier aplicación."), GLOBAL, "Ctrl+Shift+V"),
+    Spec("stack", tr("Activar Stack"), tr("Muestra Stack y empieza a recoger lo que copies, en orden."), GLOBAL, "Ctrl+Shift+C"),
+    Spec("search", tr("Buscar"), tr("Lleva el cursor al campo de búsqueda."), LOCAL, "Ctrl+F"),
+    Spec("rename", tr("Renombrar"), tr("Edita el título del elemento seleccionado."), LOCAL, "F2"),
+    Spec("quick_paste", tr("Pegado rápido 1–9"), tr("Pega directamente el elemento número 1 a 9 de la vista actual."), LOCAL, "Ctrl+1"),
+    Spec("board_prev", tr("Pinboard anterior"), tr("Cambia al Pinboard de la izquierda."), LOCAL, "Ctrl+Left"),
+    Spec("board_next", tr("Pinboard siguiente"), tr("Cambia al Pinboard de la derecha."), LOCAL, "Ctrl+Right"),
+    Spec("paste", tr("Pegar"), tr("Pega el elemento seleccionado."), LOCAL, "Enter", False,
+         tr("Es la tecla de activación de la lista; cambiarla impediría pegar con el teclado."), ("Return",)),
+    Spec("paste_plain", tr("Pegar como texto plano"), tr("Pega el elemento sin formato."), LOCAL, "Shift+Enter", False,
+         tr("Va ligada a Enter."), ("Shift+Return",)),
+    Spec("close", tr("Cerrar o volver"), tr("Cierra el panel, o vuelve al historial desde Pinboards y Configuración."), LOCAL, "Esc", False,
+         tr("Escape es la salida segura de cualquier vista y de la edición.")),
+    Spec("focus_toggle", tr("Alternar búsqueda y resultados"), tr("Mueve el foco entre el campo de búsqueda y las tarjetas."), LOCAL, "Tab", False,
+         tr("Tab pertenece a la navegación de Windows."), ("Backtab",)),
+    Spec("stack_remove", tr("Quitar del Stack"), tr("Quita del Stack el elemento seleccionado."), LOCAL, "Del", False,
+         tr("Se comparte con la edición de texto."), ("Backspace",)),
+    Spec("stack_paste", tr("Pegar el siguiente del Stack"), tr("Con Stack activo, el pegado normal consume el siguiente elemento."), GLOBAL, "Ctrl+V", False,
+         tr("Es el pegado del propio sistema; Nexus lo observa, no lo reemplaza.")),
 )
 _BY_ID = {s.id: s for s in SPECS}
 _GLOBAL_SETTING_KEY = {"panel": "panel_hotkey", "stack": "stack_hotkey"}
@@ -111,25 +112,25 @@ def expand_quick_paste(text: str) -> list[str]:
 def parse_global(text) -> tuple[int, int]:
     """(modifier flags, virtual key) for RegisterHotKey, or ValueError (Spanish)."""
     if text and QKeySequence(str(text), QKeySequence.SequenceFormat.PortableText).count() > 1:
-        raise ValueError("Usa una sola combinación de teclas.")
+        raise ValueError(tr("Usa una sola combinación de teclas."))
     canonical = normalize(text)
     if canonical is None:
-        raise ValueError("Pulsa una combinación de teclas.")
+        raise ValueError(tr("Pulsa una combinación de teclas."))
     mods, key = _split(canonical)
     if "Meta" in mods:
-        raise ValueError("La tecla Windows está reservada para el sistema.")
+        raise ValueError(tr("La tecla Windows está reservada para el sistema."))
     flags = 0
     for name in mods:
         flags |= _MODIFIERS[name]
     if not flags & (MOD_CONTROL | MOD_ALT):
-        raise ValueError("Un atajo global necesita Ctrl o Alt (y puede llevar Mayús).")
+        raise ValueError(tr("Un atajo global necesita Ctrl o Alt (y puede llevar Mayús)."))
     if len(key) == 1 and key.isalnum() and key.isascii():
         return flags, ord(key.upper())
     if key.startswith("F") and key[1:].isdigit() and 1 <= int(key[1:]) <= 24:
         return flags, 0x70 + int(key[1:]) - 1
     if key in _VK_NAMED:
         return flags, _VK_NAMED[key]
-    raise ValueError(f"Windows no puede registrar la tecla «{key}» como atajo global.")
+    raise ValueError(tr("Windows no puede registrar la tecla «{key}» como atajo global.", key=key))
 
 
 class ShortcutStore:
@@ -174,40 +175,40 @@ class ShortcutStore:
     def validate(self, identifier: str, text) -> Result:
         spec = _BY_ID[identifier]
         if not spec.editable:
-            return Result(False, f"«{spec.label}» no se puede cambiar. {spec.reason}")
+            return Result(False, tr("«{label}» no se puede cambiar. {reason}", label=spec.label, reason=spec.reason))
         if text and QKeySequence(str(text), QKeySequence.SequenceFormat.PortableText).count() > 1:
-            return Result(False, "Usa una sola combinación de teclas.")
+            return Result(False, tr("Usa una sola combinación de teclas."))
         value = normalize(text)
         if value is None:
-            return Result(False, "Pulsa una combinación de teclas.")
+            return Result(False, tr("Pulsa una combinación de teclas."))
         mods, key = _split(value)
         if "Meta" in mods:
-            return Result(False, "La tecla Windows está reservada para el sistema.")
+            return Result(False, tr("La tecla Windows está reservada para el sistema."))
         if spec.scope == GLOBAL:
             if value in RESERVED_GLOBAL:
-                return Result(False, f"{value} está reservada por Windows.")
+                return Result(False, tr("{value} está reservada por Windows.", value=value))
             try:
                 parse_global(value)
             except ValueError as error:
                 return Result(False, str(error))
         else:
             if _same(value) in {_same(r) for r in RESERVED_LOCAL}:
-                return Result(False, f"{value} está reservada: la usan la búsqueda, el pegado o la edición.")
+                return Result(False, tr("{value} está reservada: la usan la búsqueda, el pegado o la edición.", value=value))
             is_function_key = key.startswith("F") and key[1:].isdigit()
             if not mods and not is_function_key:
-                return Result(False, "Añade un modificador (Ctrl o Alt): una tecla sola escribiría en la búsqueda.")
+                return Result(False, tr("Añade un modificador (Ctrl o Alt): una tecla sola escribiría en la búsqueda."))
             if identifier == "quick_paste":
                 if key != "1":
-                    return Result(False, "El pegado rápido debe terminar en la tecla 1 (p. ej. Ctrl+1); el resto se deduce.")
+                    return Result(False, tr("El pegado rápido debe terminar en la tecla 1 (p. ej. Ctrl+1); el resto se deduce."))
                 if not {"Ctrl", "Alt"} & set(mods):
-                    return Result(False, "El pegado rápido necesita Ctrl o Alt con el número.")
+                    return Result(False, tr("El pegado rápido necesita Ctrl o Alt con el número."))
         candidate = {_same(k) for k in self.keys_for(identifier, value)}
         for other in SPECS:
             if other.id == identifier:
                 continue
             taken = {_same(normalize(k) or k) for k in self.keys_for(other.id)}
             if candidate & taken:
-                return Result(False, f"{value} ya la usa «{other.label}».")
+                return Result(False, tr("{value} ya la usa «{label}».", value=value, label=other.label))
         return Result(True, value=value)
 
     # -- writing ----------------------------------------------------------
@@ -258,5 +259,5 @@ class ShortcutStore:
             if result.ok:
                 self._write(spec.id, result.value)
             else:
-                notices.append(f"«{spec.label}»: {result.message} Se restableció a {self._defaults[spec.id]}.")
+                notices.append(tr("«{label}»: {message} Se restableció a {default}.", label=spec.label, message=result.message, default=self._defaults[spec.id]))
         return notices
