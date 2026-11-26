@@ -56,7 +56,7 @@ if (-not $iscc) { throw "Inno Setup 6 (ISCC.exe) not found" }
 
 $out = Join-Path $root "dist-installer"
 New-Item -ItemType Directory -Force $out | Out-Null
-& $iscc /Q "/DAppVersion=$version" "/DSourceDir=$(Join-Path $work 'dist\Nexus')" "/DOutputDir=$out" packaging\windows\nexus.iss
+& $iscc /Q "/DAppVersion=$version" "/DAppVersionNumeric=$($parts -join '.')" "/DSourceDir=$(Join-Path $work 'dist\Nexus')" "/DOutputDir=$out" packaging\windows\nexus.iss
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
 
 $setup = Join-Path $out "Nexus-Setup-$version.exe"

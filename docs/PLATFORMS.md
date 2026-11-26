@@ -4,7 +4,7 @@ Windows and Linux now build from the same code on `main` and share one test suit
 
 | | Windows | Linux | macOS |
 |---|---|---|---|
-| Code | `main`, Python + Qt 6 | `main` (same code; `nexus_linux.app`), Python + Qt 6 | Original Swift/SwiftUI app, not yet in this repository |
+| Code | `main`, Python + Qt 6 | `main` (same code; `nexus.platform.linux.app`), Python + Qt 6 | Original Swift/SwiftUI app, not yet in this repository |
 | Status | Main build, released | Early build, Wayland (Hyprland/KDE) | Private original; to be reviewed and published |
 | Interface language | English / Spanish (automatic) | English / Spanish with the shared interface; Spanish in the classic panel | Spanish |
 | Installer | `Nexus-Setup-<version>.exe` | Not yet | Not yet |

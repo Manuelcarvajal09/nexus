@@ -147,7 +147,12 @@ def cmd_start(args) -> int:
     real_before = list_nexus_processes()
     real_root, sandbox_local, _db = sandbox_run.ensure_snapshot(args.refresh)
     code_src = (Path(args.code).resolve() / "src") if args.code else ROOT / "src"
-    if not (code_src / "nexus_linux" / "windows_app.py").exists():
+    # 0.5+ lives in nexus/platform/windows; older installed versions in nexus_linux.
+    if (code_src / "nexus" / "platform" / "windows" / "app.py").exists():
+        module = "nexus.platform.windows.app"
+    elif (code_src / "nexus_linux" / "windows_app.py").exists():
+        module = "nexus_linux.windows_app"
+    else:
         raise AcceptanceError(f"No encuentro el código en {code_src}")
     env = build_env(os.environ, sandbox_local=sandbox_local, real_root=real_root, code_src=code_src,
                     open_panel=args.open, allow_hook=args.allow_hook, reduced_motion=args.reduced_motion)
@@ -155,7 +160,7 @@ def cmd_start(args) -> int:
     offset = log_path.stat().st_size if log_path.exists() else 0
     pythonw = ROOT / ".venv" / "Scripts" / "pythonw.exe"
     interpreter = str(pythonw if pythonw.exists() else Path(sys.executable).with_name("pythonw.exe"))
-    subprocess.Popen([interpreter, "-m", "nexus_linux.windows_app"], env=env, cwd=str(code_src.parent),
+    subprocess.Popen([interpreter, "-m", module], env=env, cwd=str(code_src.parent),
                      creationflags=DETACHED, close_fds=True)
     deadline, text = time.time() + 30, ""
     while time.time() < deadline:

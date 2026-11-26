@@ -122,14 +122,14 @@ def test_startup_confirmation_accepts_only_a_real_platform_sandbox(tmp_path):
 
 
 def test_the_app_logs_the_line_the_launcher_checks():
-    source = (ROOT / "src" / "nexus_linux" / "windows_app.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "nexus" / "platform" / "windows" / "app.py").read_text(encoding="utf-8")
     assert '"run platform=%s sandbox=%s data=%s code=%s"' in source
 
 
 def test_no_code_path_can_signal_other_processes():
     """The application and the sandbox tooling never terminate other processes."""
     forbidden = ("taskkill", "TerminateProcess", "os.kill(", "Stop-Process", "psutil")
-    for path in (ROOT / "src" / "nexus_linux").glob("*.py"):
+    for path in (ROOT / "src" / "nexus").rglob("*.py"):
         text = path.read_text(encoding="utf-8")
         assert not [word for word in forbidden if word in text], path.name
     assert "taskkill" in (ROOT / "tools" / "windows_acceptance.py").read_text(encoding="utf-8")  # only here, only recorded PIDs

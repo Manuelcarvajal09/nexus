@@ -5,8 +5,8 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecCondition="/home/manuel/.local/share/nexus-runtime/venv/bin/python" -m nexus_linux.session ready
-ExecStart="/home/manuel/.local/share/nexus-runtime/venv/bin/python" -m nexus_linux.app
+ExecCondition="/home/manuel/.local/share/nexus-runtime/venv/bin/python" -m nexus.platform.linux.session ready
+ExecStart="/home/manuel/.local/share/nexus-runtime/venv/bin/python" -m nexus.platform.linux.app
 WorkingDirectory=/home/manuel/Projects/Nexus/linux
 Environment="NEXUS_PRODUCTION=1"
 Environment="NEXUS_PROFILE_ROOT="

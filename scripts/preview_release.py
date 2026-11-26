@@ -18,12 +18,13 @@ def main():
         from PySide6.QtWidgets import QApplication
         from PySide6.QtGui import QImage, QColor
         from PySide6.QtCore import QBuffer, QIODevice
-        from nexus_linux import styles, product_ui, caelestia_theme
-        from nexus_linux.storage import StorageService
-        from nexus_linux.timeline_window import TimelineWindow
-        from nexus_linux.stack_window import StackWindow
-        from nexus_linux.stack import ClipStack
-        from nexus_linux.appearance import AppearanceDialog
+        from nexus.ui import styles
+        from nexus.platform.linux import product_ui, caelestia_theme
+        from nexus.core.storage import StorageService
+        from nexus.platform.linux.timeline_window import TimelineWindow
+        from nexus.platform.linux.stack_window import StackWindow
+        from nexus.core.stack import ClipStack
+        from nexus.platform.linux.appearance import AppearanceDialog
         class NoClipboard:
             def write_to_clipboard(self, item): return True
             def synthetic_paste(self): return False

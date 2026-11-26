@@ -14,7 +14,7 @@ from PySide6.QtGui import QColor, QImage
 from nexus_linux import windows_app, windows_design, windows_icons, windows_sandbox
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ROOT / "src" / "nexus_linux" / "assets" / "icons"
+ASSETS = ROOT / "src" / "nexus" / "ui" / "assets" / "icons"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
@@ -148,9 +148,9 @@ def test_identity_and_icon_are_set_before_any_window_exists():
 
 def test_project_declares_a_gui_launcher_and_ships_the_icons():
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert config["project"]["gui-scripts"] == {"nexus-windows": "nexus_linux.windows_app:main"}
+    assert config["project"]["gui-scripts"] == {"nexus-windows": "nexus.platform.windows.app:main"}
     assert "nexus-windows" not in config["project"].get("scripts", {})   # would open a console
-    assert "assets/icons/*" in config["tool"]["setuptools"]["package-data"]["nexus_linux"]
+    assert "ui/assets/icons/*" in config["tool"]["setuptools"]["package-data"]["nexus"]
 
 
 @pytest.mark.skipif(not (ROOT / ".venv" / "Scripts" / "pythonw.exe").exists() or not shutil.which("powershell"),
@@ -169,5 +169,5 @@ def test_shortcut_tool_targets_pythonw_with_the_nexus_icon_and_refuses_to_overwr
                            "$s.TargetPath; $s.Arguments; $s.IconLocation"], capture_output=True, text=True, timeout=60)
     target, arguments, icon = read.stdout.strip().splitlines()[:3]
     assert target.lower().endswith(r"\.venv\scripts\pythonw.exe") and "cmd.exe" not in target.lower()
-    assert arguments == "-m nexus_linux.windows_app"
-    assert icon.lower().endswith(r"nexus_linux\assets\icons\nexus.ico,0")
+    assert arguments == "-m nexus.platform.windows.app"
+    assert icon.lower().endswith(r"nexus\ui\assets\icons\nexus.ico,0")

@@ -8,6 +8,9 @@
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
+#ifndef AppVersionNumeric
+  #define AppVersionNumeric "0.0.0.0"
+#endif
 #ifndef SourceDir
   #define SourceDir "..\..\build\pyinstaller\dist\Nexus"
 #endif
@@ -33,7 +36,7 @@ AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}/issues
 AppUpdatesURL={#AppURL}/releases
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#AppVersionNumeric}
 VersionInfoDescription={#AppName} installer
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
@@ -46,7 +49,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
 WizardStyle=modern
-SetupIconFile=..\..\src\nexus_linux\assets\icons\nexus.ico
+SetupIconFile=..\..\src\nexus\ui\assets\icons\nexus.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
 LicenseFile=..\..\LICENSE

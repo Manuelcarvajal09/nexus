@@ -25,8 +25,8 @@ To see the interface with sample data (no clipboard, no hotkeys):
 - Keep changes small and focused; one topic per pull request.
 - Add or update a test for every behaviour change.
 - Never log clipboard content. Diagnostics may contain counts, ids and result codes only.
-- Interface text goes through `tr()` (`src/nexus_linux/i18n.py`): write the Spanish source text and add its English translation to `i18n_en.py`; `tests/test_i18n.py` fails if one is missing. New languages are welcome.
-- Windows-specific code lives in `src/nexus_linux/windows_*.py`. Shared modules (`storage.py`, `web_preview.py`, …) are also used by the Linux build, so keep them platform-neutral.
+- Interface text goes through `tr()` (`src/nexus/core/i18n.py`): write the Spanish source text and add its English translation to `i18n_en.py`; `tests/test_i18n.py` fails if one is missing. New languages are welcome.
+- Code layout (`src/nexus`): `core/` data, search, languages, previews and the Stack model (no widgets, no OS calls); `ui/` the shared interface; `platform/windows/` and `platform/linux/` the per-system services and entry points. `core` must not import `ui` or `platform`, and `ui` must not import `platform` (`tests/test_architecture.py`). The old `nexus_linux.*` names are kept as aliases for launchers written by earlier versions.
 
 ## Good first issues
 

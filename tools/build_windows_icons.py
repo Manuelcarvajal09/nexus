@@ -1,6 +1,6 @@
 """Regenerate the Windows icon assets from the vector mark in windows_icons.py.
 
-    python tools/build_windows_icons.py          # writes src/nexus_linux/assets/icons/
+    python tools/build_windows_icons.py          # writes src/nexus/ui/assets/icons/
     python tools/build_windows_icons.py --check  # exit 1 if the committed files are stale
 
 Output: nexus.ico (16-256 px, PNG entries) plus one PNG per size. Nothing is
@@ -19,7 +19,7 @@ from PySide6.QtGui import QGuiApplication  # noqa: E402
 
 from nexus_linux import windows_icons  # noqa: E402
 
-TARGET = ROOT / "src" / "nexus_linux" / "assets" / "icons"
+TARGET = ROOT / "src" / "nexus" / "ui" / "assets" / "icons"
 
 
 def expected_files() -> dict:

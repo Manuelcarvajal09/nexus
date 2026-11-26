@@ -12,7 +12,7 @@ import pytest
 from nexus_linux import i18n
 from nexus_linux.i18n_en import CATALOG
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "nexus_linux"
+SRC = Path(__file__).resolve().parents[1] / "src" / "nexus"
 
 
 def _keys():

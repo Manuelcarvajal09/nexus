@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/nexus_linux/assets/icons/nexus-128.png" width="96" alt="Nexus icon">
+  <img src="src/nexus/ui/assets/icons/nexus-128.png" width="96" alt="Nexus icon">
 </p>
 
 <h1 align="center">Nexus</h1>
@@ -58,7 +58,7 @@ Nexus never sends your clipboard anywhere. Everything lives in one SQLite file u
 | | Status | Get it |
 |---|---|---|
 | **Windows 11** | ✅ Main build, English and Spanish | [Installer (.exe)](https://github.com/Manuelcarvajal09/nexus/releases/latest) |
-| **Linux** (Wayland: Hyprland, KDE) | 🧪 Early access, same code base as Windows | From source: `python -m nexus_linux.app` (add `NEXUS_UI=shared` for the new shared interface) |
+| **Linux** (Wayland: Hyprland, KDE) | 🧪 Early access, same code base as Windows | From source: `python -m nexus.platform.linux.app` (add `NEXUS_UI=shared` for the new shared interface) |
 | **macOS** | 🛠️ Native original (Swift) being brought into this repository | Coming soon, see [MACOS.md](MACOS.md) |
 
 Requirements, packaging and install options for each system: [docs/PLATFORMS.md](docs/PLATFORMS.md). The plan to ship all three from one codebase: [ROADMAP_1.0.md](ROADMAP_1.0.md).
@@ -94,7 +94,7 @@ git clone https://github.com/Manuelcarvajal09/nexus.git
 cd nexus
 python -m venv .venv
 .venv\Scripts\python -m pip install -e ".[dev]"
-.venv\Scripts\python -m nexus_linux.windows_app
+.venv\Scripts\python -m nexus.platform.windows.app
 .venv\Scripts\python -m pytest
 ```
 </details>
@@ -144,7 +144,7 @@ Nexus is heading to **1.0**: signed builds, an update path, CI releases, and Win
 
 ## Contributing
 
-Issues and pull requests are welcome. Good first contributions: more interface languages (see `src/nexus_linux/i18n_en.py`), more card types, testing on different Windows setups, and help with the Linux and macOS builds. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues and pull requests are welcome. Good first contributions: more interface languages (see `src/nexus/core/i18n_en.py`), more card types, testing on different Windows setups, and help with the Linux and macOS builds. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 If Nexus saves you time, a ⭐ helps other people find it.
 

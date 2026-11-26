@@ -8,11 +8,11 @@ SRC = ROOT / "src"
 a = Analysis(
     [str(ROOT / "packaging" / "windows" / "nexus_entry.py")],
     pathex=[str(SRC)],
-    datas=[(str(SRC / "nexus_linux" / "assets" / "icons"), "nexus_linux/assets/icons")],
-    hiddenimports=["nexus_linux.i18n_en"],
+    datas=[(str(SRC / "nexus" / "ui" / "assets" / "icons"), "nexus/ui/assets/icons")],
+    hiddenimports=["nexus.core.i18n_en"],
     excludes=["tkinter", "unittest", "pydoc", "PySide6.QtNetwork", "PySide6.QtQml", "PySide6.QtQuick",
               "PySide6.QtWebEngineCore", "PySide6.QtPdf", "PySide6.QtMultimedia", "PySide6.QtOpenGL",
-              "PySide6.QtSvg", "PySide6.QtDBus", "PySide6.QtTest"],
+              "PySide6.QtDBus", "PySide6.QtTest"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
@@ -22,7 +22,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="Nexus",
-    icon=str(SRC / "nexus_linux" / "assets" / "icons" / "nexus.ico"),
+    icon=str(SRC / "nexus" / "ui" / "assets" / "icons" / "nexus.ico"),
     version=str(ROOT / "packaging" / "windows" / "version_info.txt"),
     console=False,
     disable_windowed_traceback=False,

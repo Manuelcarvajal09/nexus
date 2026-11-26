@@ -6,8 +6,8 @@
 .DESCRIPTION
   Writes ONE .lnk at the path you give. It never touches the Desktop, Start
   Menu, Startup folder or taskbar by itself: choose the destination explicitly.
-  Target: <project>\.venv\Scripts\pythonw.exe -m nexus_linux.windows_app
-  Icon:   <project>\src\nexus_linux\assets\icons\nexus.ico
+  Target: <project>\.venv\Scripts\pythonw.exe -m nexus.platform.windows.app
+  Icon:   <project>\src\nexus\ui\assets\icons\nexus.ico
 
   With -CodeRoot the app runs from that folder's "src" (for example a
   `git archive` copy of a release) instead of the editable project: the same
@@ -28,9 +28,9 @@ $ErrorActionPreference = 'Stop'
 if (-not $ProjectRoot) { $ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path) }
 $python = Join-Path $ProjectRoot '.venv\Scripts\pythonw.exe'
 $iconRoot = if ($CodeRoot) { $CodeRoot } else { $ProjectRoot }
-$icon = Join-Path $iconRoot 'src\nexus_linux\assets\icons\nexus.ico'
+$icon = Join-Path $iconRoot 'src\nexus\ui\assets\icons\nexus.ico'
 $required = @($python)
-if ($CodeRoot) { $required += (Join-Path $CodeRoot 'src\nexus_linux\windows_app.py') }
+if ($CodeRoot) { $required += (Join-Path $CodeRoot 'src\nexus\platform\windows\app.py') }
 if (Test-Path -LiteralPath $icon) { $useIcon = $true } else { $useIcon = $false }
 foreach ($item in $required) {
     if (-not (Test-Path -LiteralPath $item)) { throw "No existe: $item" }
@@ -40,10 +40,10 @@ $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($Path)
 $shortcut.TargetPath = $python
 if ($CodeRoot) {
     $src = Join-Path (Resolve-Path -LiteralPath $CodeRoot).Path 'src'
-    $shortcut.Arguments = "-c `"import sys, runpy; sys.path.insert(0, r'$src'); runpy.run_module('nexus_linux.windows_app', run_name='__main__')`""
+    $shortcut.Arguments = "-c `"import sys, runpy; sys.path.insert(0, r'$src'); runpy.run_module('nexus.platform.windows.app', run_name='__main__')`""
     $shortcut.WorkingDirectory = (Resolve-Path -LiteralPath $CodeRoot).Path
 } else {
-    $shortcut.Arguments = '-m nexus_linux.windows_app'
+    $shortcut.Arguments = '-m nexus.platform.windows.app'
     $shortcut.WorkingDirectory = $ProjectRoot
 }
 if ($useIcon) { $shortcut.IconLocation = "$icon,0" }

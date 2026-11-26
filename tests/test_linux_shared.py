@@ -49,7 +49,7 @@ def test_autostart_writes_and_removes_an_xdg_entry(shared):
     _, backend, *_, tmp_path = shared
     assert backend.set_autostart(True) == "" and backend.autostart_enabled()
     entry = (tmp_path / "xdg" / "autostart" / "nexus.desktop").read_text(encoding="utf-8")
-    assert "Exec=" in entry and "nexus_linux.app" in entry and "Type=Application" in entry
+    assert "Exec=" in entry and "nexus.platform.linux.app" in entry and "Type=Application" in entry
     assert backend.set_autostart(False) == "" and not backend.autostart_enabled()
 
 
@@ -70,3 +70,15 @@ def test_ui_choice(monkeypatch):
     assert not linux_shared.wants_shared_ui({"ui": "shared"})
     monkeypatch.delenv("NEXUS_UI")
     assert linux_shared.wants_shared_ui({"ui": "shared"}) and not linux_shared.wants_shared_ui({})
+
+
+def test_old_module_names_are_the_same_modules_and_runnable():
+    """Launchers, autostart entries, Hyprland binds and systemd units written by
+    earlier versions use nexus_linux.*: they must keep working after the move."""
+    import importlib, importlib.util
+    assert importlib.import_module("nexus_linux.windows_design") is importlib.import_module("nexus.ui.design")
+    assert importlib.import_module("nexus_linux.storage").StorageService is importlib.import_module("nexus.core.storage").StorageService
+    spec = importlib.util.find_spec("nexus_linux.app")
+    # `python -m nexus_linux.app` copies the origin into sys.argv[0] (None crashed QApplication)
+    assert spec.origin and spec.origin.replace("\\", "/").endswith("nexus/platform/linux/app.py")
+    assert spec.loader.get_code("nexus_linux.app").co_filename == spec.origin

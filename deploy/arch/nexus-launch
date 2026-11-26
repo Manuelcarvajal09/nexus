@@ -2,4 +2,4 @@
 unset NEXUS_PROFILE_ROOT NEXUS_SMOKE_EXIT_MS NEXUS_OPEN_ON_START
 export NEXUS_PRODUCTION=1
 export PYTHONPATH=/home/manuel/Projects/Nexus/linux/src
-exec /home/manuel/.local/share/nexus-runtime/venv/bin/python -m nexus_linux.session "$@"
+exec /home/manuel/.local/share/nexus-runtime/venv/bin/python -m nexus.platform.linux.session "$@"

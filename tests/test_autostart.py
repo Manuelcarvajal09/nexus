@@ -55,7 +55,7 @@ def test_old_settings_with_the_legacy_true_flag_do_not_turn_autostart_on(tmp_pat
 def test_command_uses_pythonw_so_no_console_appears(tmp_path):
     (tmp_path / "python.exe").write_text("")
     (tmp_path / "pythonw.exe").write_text("")
-    assert autostart.launch_command(tmp_path / "python.exe") == f'"{tmp_path / "pythonw.exe"}" -m nexus_linux.windows_app'
+    assert autostart.launch_command(tmp_path / "python.exe") == f'"{tmp_path / "pythonw.exe"}" -m nexus.platform.windows.app'
 
 
 def test_startup_sync_never_creates_an_entry_when_the_choice_is_off():
@@ -152,7 +152,7 @@ def test_settings_page_has_an_off_by_default_switch(qapp, tmp_path, monkeypatch,
     assert fake_autostart_registry.values == {}              # merely showing the page wrote nothing
     page.autostart_toggle.click()
     assert page.autostart_toggle.isChecked() and "activado" in page.autostart_toggle.text()
-    assert "nexus_linux.windows_app" in fake_autostart_registry.values["Nexus"] and settings["autostart"] is True
+    assert "nexus.platform.windows.app" in fake_autostart_registry.values["Nexus"] and settings["autostart"] is True
     page.autostart_toggle.click()
     assert fake_autostart_registry.values == {} and settings["autostart"] is False
     window.close()
@@ -199,3 +199,8 @@ def test_uninstall_removes_only_an_entry_that_points_into_the_removed_root(tmp_p
     stranger = Reg(Nexus='"C:\\Elsewhere\\pythonw.exe" -m nexus_linux.windows_app')
     manage.uninstall(other, running=idle, log=quiet, registry=stranger)
     assert stranger.values                                        # someone else's entry survives
+
+
+def test_entries_written_before_the_reorganisation_are_still_recognised():
+    assert autostart.is_ours(r'"C:\old\pythonw.exe" -m nexus_linux.windows_app')
+    assert autostart.is_ours(r'"C:\new\pythonw.exe" -m nexus.platform.windows.app')

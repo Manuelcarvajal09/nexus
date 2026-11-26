@@ -22,7 +22,7 @@ def design_contract(monkeypatch):
     # contract without depending on its implementation or changing shared files.
     tokens = SimpleNamespace(panel="#14171D", border="#303640")
     design = SimpleNamespace(palette=lambda: tokens, motion_enabled=lambda: True, glass=lambda: GLASS_DARK)
-    monkeypatch.setitem(sys.modules, "nexus_linux.windows_design", design)
+    monkeypatch.setitem(sys.modules, "nexus.ui.design", design)   # where material imports it from
     monkeypatch.delenv("NEXUS_REDUCED_MOTION", raising=False)
     return design
 

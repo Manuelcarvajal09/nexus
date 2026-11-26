@@ -159,7 +159,7 @@ def main():
     launcher = bin_dir/'nexus'
     shell_root = shlex.quote(str(ROOT/'src'))
     shell_python = shlex.quote(str(runtime))
-    write(launcher, '#!/bin/sh\nunset NEXUS_PROFILE_ROOT NEXUS_SMOKE_EXIT_MS NEXUS_OPEN_ON_START\nexport NEXUS_PRODUCTION=1\nexport PYTHONPATH='+shell_root+'\nexec '+shell_python+' -m nexus_linux.session "$@"\n', True)
+    write(launcher, '#!/bin/sh\nunset NEXUS_PROFILE_ROOT NEXUS_SMOKE_EXIT_MS NEXUS_OPEN_ON_START\nexport NEXUS_PRODUCTION=1\nexport PYTHONPATH='+shell_root+'\nexec '+shell_python+' -m nexus.platform.linux.session "$@"\n', True)
     # ExecStart/Environment parse quoted words. WorkingDirectory is a scalar
     # path: do not wrap it in shell/JSON quotes.
     if any('%' in str(p) or '\n' in str(p) for p in (ROOT, runtime, launcher)):
@@ -171,8 +171,8 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecCondition={json.dumps(str(runtime))} -m nexus_linux.session ready
-ExecStart={json.dumps(str(runtime))} -m nexus_linux.app
+ExecCondition={json.dumps(str(runtime))} -m nexus.platform.linux.session ready
+ExecStart={json.dumps(str(runtime))} -m nexus.platform.linux.app
 WorkingDirectory={ROOT}
 Environment="NEXUS_PRODUCTION=1"
 Environment="NEXUS_PROFILE_ROOT="

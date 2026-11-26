@@ -13,11 +13,11 @@ dependencies = [
 dev = ["pytest>=8"]
 
 [project.scripts]
-nexus-linux = "nexus_linux.app:main"
+nexus-linux = "nexus.platform.linux.app:main"
 
 # A GUI-subsystem launcher: starting Nexus never opens (or shows the icon of) a console.
 [project.gui-scripts]
-nexus-windows = "nexus_linux.windows_app:main"
+nexus-windows = "nexus.platform.windows.app:main"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -27,7 +27,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-nexus_linux = ["assets/icons/*"]
+nexus = ["ui/assets/icons/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

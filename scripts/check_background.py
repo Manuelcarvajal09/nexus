@@ -15,7 +15,7 @@ with tempfile.TemporaryDirectory(prefix='nexus-background-check-') as tmp:
     env = dict(os.environ, PYTHONPATH=str(ROOT/'src'), QT_QPA_PLATFORM='offscreen',
                NEXUS_PROFILE_ROOT=tmp, NEXUS_CAPTURE_DISABLED='1', HYPRLAND_INSTANCE_SIGNATURE='')
     env.pop('NEXUS_SMOKE_EXIT_MS', None); env.pop('NEXUS_OPEN_ON_START', None)
-    cmd = [str(RUNTIME), '-m', 'nexus_linux.app']
+    cmd = [str(RUNTIME), '-m', 'nexus.platform.linux.app']
     log_path = Path(tmp)/'process.log'
     with log_path.open('w') as log:
         process = subprocess.Popen(cmd, env=env, stdout=log, stderr=log)

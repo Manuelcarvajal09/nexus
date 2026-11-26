@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/nexus_linux/assets/icons/nexus-128.png" width="96" alt="Icono de Nexus">
+  <img src="src/nexus/ui/assets/icons/nexus-128.png" width="96" alt="Icono de Nexus">
 </p>
 
 <h1 align="center">Nexus</h1>
@@ -35,7 +35,7 @@ El historial de Windows (<kbd>Win</kbd>+<kbd>V</kbd>) guarda 25 elementos, los o
 | | Estado | Cómo obtenerlo |
 |---|---|---|
 | **Windows 11** | ✅ Versión principal, en español e inglés | [Instalador (.exe)](https://github.com/Manuelcarvajal09/nexus/releases/latest) |
-| **Linux** (Wayland: Hyprland, KDE) | 🧪 Acceso anticipado, mismo código que Windows | Desde el código: `python -m nexus_linux.app` (con `NEXUS_UI=shared` usa la nueva interfaz compartida) |
+| **Linux** (Wayland: Hyprland, KDE) | 🧪 Acceso anticipado, mismo código que Windows | Desde el código: `python -m nexus.platform.linux.app` (con `NEXUS_UI=shared` usa la nueva interfaz compartida) |
 | **macOS** | 🛠️ App nativa original (Swift) en proceso de incorporarse a este repositorio | Próximamente, ver [MACOS.md](MACOS.md) |
 
 Requisitos y opciones de instalación de cada sistema: [docs/PLATFORMS.md](docs/PLATFORMS.md). Plan para la 1.0 y la unificación: [ROADMAP_1.0.md](ROADMAP_1.0.md).
